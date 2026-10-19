@@ -6,9 +6,21 @@
 set -euo pipefail
 APKS=${APKS:-app/build/outputs/apk}
 
-docker rm -f tether-e2e-ejabberd >/dev/null 2>&1 || true
-docker run -d --name tether-e2e-ejabberd -p 5222:5222 ghcr.io/processone/ejabberd:latest
-for _ in $(seq 90); do docker exec tether-e2e-ejabberd ejabberdctl status >/dev/null 2>&1 && break; sleep 2; done
+# Starts the server and waits until it answers. Prints its log if it stops or
+# never comes up, so a failed start can be told apart from a failed test.
+start_server() {
+  docker rm -f tether-e2e-ejabberd >/dev/null 2>&1 || true
+  docker run -d --name tether-e2e-ejabberd -p 5222:5222 ghcr.io/processone/ejabberd:latest >/dev/null
+  for _ in $(seq 90); do
+    docker exec tether-e2e-ejabberd ejabberdctl status >/dev/null 2>&1 && return 0
+    [ "$(docker inspect -f '{{.State.Running}}' tether-e2e-ejabberd)" = true ] || break
+    sleep 2
+  done
+  echo "ejabberd did not start:" >&2
+  docker logs tether-e2e-ejabberd 2>&1 | tail -n 100 | tee -a ejabberd.txt >&2
+  return 1
+}
+start_server || start_server
 docker exec tether-e2e-ejabberd ejabberdctl register alice localhost secret
 docker exec tether-e2e-ejabberd ejabberdctl register bob localhost secret
 
