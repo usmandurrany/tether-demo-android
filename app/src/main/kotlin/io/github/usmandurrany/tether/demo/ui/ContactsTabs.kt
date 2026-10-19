@@ -42,7 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.usmandurrany.tether.core.BareJid
-import io.github.usmandurrany.tether.demo.Delivery
+import io.github.usmandurrany.tether.im.MessageStatus
 import io.github.usmandurrany.tether.demo.TetherSession
 import io.github.usmandurrany.tether.im.RosterItem
 import io.github.usmandurrany.tether.im.Subscription
@@ -51,16 +51,11 @@ import kotlinx.coroutines.launch
 /** Conversations of this run, newest first, plus a field to start a new one. */
 @Composable
 fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
-    val threads by session.conversations.threads.collectAsStateWithLifecycle()
-    val unread by session.conversations.unread.collectAsStateWithLifecycle()
-    val roster by session.im.roster.items.collectAsStateWithLifecycle()
+    // Newest first, with names, unread counts and typing, kept by the SDK.
+    val conversations by session.chat.conversations.collectAsStateWithLifecycle()
     val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
     var address by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-
-    val sorted = threads.entries
-        .filter { it.value.isNotEmpty() }
-        .sortedByDescending { it.value.last().timeMillis }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item {
@@ -83,21 +78,25 @@ fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
                 }) { Text("Open") }
             }
         }
-        if (sorted.isEmpty()) {
+        if (conversations.isEmpty()) {
             item { Empty("No messages yet. Open a contact, or type an address above.") }
         }
-        items(sorted, key = { it.key.toString() }) { (peer, messages) ->
-            val last = messages.last()
+        items(conversations, key = { it.peer.toString() }) { conversation ->
+            val last = conversation.lastMessage
             ListRow(
-                title = roster[peer]?.name ?: peer.toString(),
-                subtitle = buildString {
-                    if (last.outgoing) append("You: ")
-                    append(last.body)
-                    if (last.delivery == Delivery.FAILED) append("  (failed)")
+                title = conversation.name,
+                subtitle = when {
+                    conversation.typing -> "typing…"
+                    last == null -> ""
+                    else -> buildString {
+                        if (last.outgoing) append("You: ")
+                        append(last.body)
+                        if (last.status == MessageStatus.FAILED) append("  (failed)")
+                    }
                 },
-                dot = presenceColor(presences[peer].best()),
-                badge = unread[peer]?.takeIf { it > 0 },
-                onClick = { onOpenChat(peer) },
+                dot = presenceColor(presences[conversation.peer].best()),
+                badge = conversation.unreadCount.takeIf { it > 0 },
+                onClick = { onOpenChat(conversation.peer) },
             )
         }
     }

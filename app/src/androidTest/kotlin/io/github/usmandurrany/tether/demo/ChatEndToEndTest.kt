@@ -82,10 +82,13 @@ class ChatEndToEndTest {
 
             val aliceJid = BareJid.parse(alice)
             compose.waitUntil(TIMEOUT) {
-                bobSession.conversations.threads.value[aliceJid].orEmpty().any { it.body == "Hello from the test" }
+                bobSession.chat.allMessages.value[aliceJid].orEmpty().any { it.body == "Hello from the test" }
             }
             // Bob's device confirmed it (XEP-0184): two ticks.
             compose.waitUntil(TIMEOUT) { shows("✓✓", substring = true) }
+            // Bob opens the chat: the SDK sends a read marker (XEP-0333) and alice sees "read".
+            bobSession.chat.openChat(aliceJid)
+            compose.waitUntil(TIMEOUT) { shows("✓✓ read", substring = true) }
 
             // Bob answers; alice sees it.
             runBlocking { bobSession.send(aliceJid, "Hi alice") }

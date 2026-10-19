@@ -46,35 +46,31 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.usmandurrany.tether.core.BareJid
-import io.github.usmandurrany.tether.demo.Delivery
 import io.github.usmandurrany.tether.demo.TetherSession
-import io.github.usmandurrany.tether.demo.UiMessage
-import io.github.usmandurrany.tether.im.ChatState
-import kotlinx.coroutines.delay
+import io.github.usmandurrany.tether.im.Message
+import io.github.usmandurrany.tether.im.MessageStatus
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
 /**
- * One conversation: live messages with delivery ticks, typing notifications
- * both ways, and older messages from the server archive when it has one.
+ * One conversation, all from the SDK's TetherChat: messages with ticks (sent,
+ * delivered, read), typing both ways, and older messages from the server
+ * archive. While this screen is open and the app is in the foreground, the SDK
+ * marks the chat read and tells the contact.
  */
 @Composable
 fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val threads by session.conversations.threads.collectAsStateWithLifecycle()
-    val typing by session.conversations.typing.collectAsStateWithLifecycle()
+    val chat = session.chat
+    val messages by remember(peer) { chat.messages(peer) }.collectAsStateWithLifecycle()
+    val typing by chat.typingContacts.collectAsStateWithLifecycle()
     val roster by session.im.roster.items.collectAsStateWithLifecycle()
     val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
     val historyAvailable by session.im.history.available.collectAsStateWithLifecycle()
-    val messages = threads[peer].orEmpty()
     val list = rememberLazyListState()
 
     var text by rememberSaveable { mutableStateOf("") }
-    var composing by remember { mutableStateOf(false) }
-
-    // Archive paging: null cursor means "not loaded yet".
-    var oldest by remember { mutableStateOf<String?>(null) }
     var archiveDone by remember { mutableStateOf(false) }
     var loadingHistory by remember { mutableStateOf(false) }
     var historyError by remember { mutableStateOf<String?>(null) }
@@ -83,42 +79,22 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
         if (loadingHistory) return
         loadingHistory = true
         scope.launch {
-            runCatching { session.im.history.fetch(with = peer, before = oldest, max = 30) }
-                .onSuccess { page ->
-                    session.conversations.addHistory(peer, page.messages)
-                    oldest = page.first ?: oldest
-                    archiveDone = page.complete || page.first == null
-                    historyError = null
-                }
+            runCatching { chat.loadOlder(peer) }
+                .onSuccess { more -> archiveDone = !more; historyError = null }
                 .onFailure { historyError = "Couldn't load history: ${it.message}" }
             loadingHistory = false
         }
     }
 
+    // Opening a chat loads its newest history and marks it read; closing stops our "typing".
     DisposableEffect(peer) {
-        session.conversations.openChat = peer
-        onDispose {
-            session.conversations.openChat = null
-            if (composing) session.sendChatStateLater(peer, ChatState.PAUSED)
-        }
+        chat.openChat(peer)
+        onDispose { chat.closeChat(peer) }
     }
-    LaunchedEffect(peer, historyAvailable) { if (historyAvailable && oldest == null && !archiveDone) loadHistory() }
     LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size) }
 
-    // Typing notifications (XEP-0085): "composing" on the first keystroke, "paused" after 3 s idle.
-    LaunchedEffect(text) {
-        if (text.isEmpty()) {
-            if (composing) { composing = false; session.sendChatState(peer, ChatState.PAUSED) }
-            return@LaunchedEffect
-        }
-        if (!composing) { composing = true; session.sendChatState(peer, ChatState.COMPOSING) }
-        delay(3_000)
-        composing = false
-        session.sendChatState(peer, ChatState.PAUSED)
-    }
-
     val name = roster[peer]?.name ?: peer.toString()
-    val subtitle = if (typing[peer] == ChatState.COMPOSING) "typing…" else presenceText(presences[peer].best())
+    val subtitle = if (peer in typing) "typing…" else presenceText(presences[peer].best())
 
     Scaffold(
         topBar = {
@@ -158,7 +134,10 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = text,
-                    onValueChange = { text = it },
+                    onValueChange = {
+                        text = it
+                        if (it.isNotEmpty()) chat.typing(peer) // the SDK sends "typing", then "paused" when idle
+                    },
                     placeholder = { Text("Message") },
                     maxLines = 4,
                     modifier = Modifier.weight(1f).testTag("message-input"),
@@ -169,8 +148,7 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
                     onClick = {
                         val body = text.trim()
                         text = ""
-                        composing = false
-                        scope.launch { session.send(peer, body) }
+                        session.send(peer, body)
                     },
                 ) { Text("Send") }
             }
@@ -179,7 +157,7 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
 }
 
 @Composable
-private fun Bubble(message: UiMessage) {
+private fun Bubble(message: Message) {
     val mine = message.outgoing
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp),
@@ -196,22 +174,23 @@ private fun Bubble(message: UiMessage) {
             Text(message.body)
             Text(
                 buildString {
-                    append(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timeMillis)))
-                    if (message.carbon) append(" · other device")
-                    if (mine) append("  ").append(message.delivery.ticks())
+                    append(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.timestamp)))
+                    if (message.fromOtherDevice) append(" · other device")
+                    if (mine) append("  ").append(message.status.ticks())
                     message.error?.let { append(" · ").append(it) }
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (message.delivery == Delivery.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (message.status == MessageStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
 
-private fun Delivery.ticks(): String = when (this) {
-    Delivery.SENDING -> "sending"
-    Delivery.SENT -> "✓"
-    Delivery.DELIVERED -> "✓✓"
-    Delivery.FAILED -> "failed"
-    Delivery.RECEIVED -> ""
+private fun MessageStatus.ticks(): String = when (this) {
+    MessageStatus.SENDING -> "sending"
+    MessageStatus.SENT -> "✓"
+    MessageStatus.DELIVERED -> "✓✓"
+    MessageStatus.READ -> "✓✓ read"
+    MessageStatus.FAILED -> "failed"
+    MessageStatus.UNREAD -> ""
 }
