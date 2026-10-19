@@ -1,0 +1,3 @@
+[submodule "tether-xmpp"]
+	path = tether-xmpp
+	url = https://github.com/usmandurrany/tether-xmpp.git
