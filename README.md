@@ -19,8 +19,9 @@ The rest is plain Jetpack Compose UI.
 
 ## Build and run
 
-You need Android Studio (or JDK 17+ and the Android SDK with API 35) and read access to
-`usmandurrany/tether-xmpp`.
+You need Android Studio (or JDK 17+ and the Android SDK with API 35). The SDK comes with
+the clone: [tether-xmpp](https://github.com/usmandurrany/tether-xmpp) is a public git
+submodule, so no account, token or extra download step is needed.
 
 ```sh
 git clone --recursive https://github.com/usmandurrany/tether-demo-android.git
@@ -148,13 +149,15 @@ docker exec ejabberd ejabberdctl register bob localhost secret
   -Pandroid.testInstrumentationRunnerArguments.xmppPassword=secret
 ```
 
-Without those arguments the test is skipped.
+Without those arguments the test is skipped. [`scripts/e2e-emulator.sh`](scripts/e2e-emulator.sh)
+does all of this against a running emulator, as CI does.
 
 ## CI
 
-[`build.yml`](.github/workflows/build.yml) builds the debug APK and uploads it as an
-artifact. While `tether-xmpp` is private, add a fine-grained token with *Contents: read* on
-that repository as the `TETHER_SDK_TOKEN` secret; without it the build is skipped with a warning.
+[`build.yml`](.github/workflows/build.yml) runs on every push and pull request: it builds
+the debug APK with the SDK from the submodule, runs lint, then runs the end-to-end test on an
+emulator against ejabberd. The APK is uploaded as the `tether-demo-debug-apk` artifact, ready
+to install.
 
 ## License
 

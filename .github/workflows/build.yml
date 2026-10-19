@@ -12,41 +12,51 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
-
-      # tether-xmpp is private for now. Give CI read access with a fine-grained
-      # token (Contents: read on usmandurrany/tether-xmpp) saved as the
-      # TETHER_SDK_TOKEN secret. Without it the build is skipped with a warning.
-      - name: Fetch the SDK submodule
-        id: sdk
-        env:
-          TOKEN: ${{ secrets.TETHER_SDK_TOKEN }}
-        run: |
-          if [ -n "$TOKEN" ]; then
-            git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-          fi
-          if git submodule update --init; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Could not fetch the tether-xmpp submodule. Add a TETHER_SDK_TOKEN secret (see README)."
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-          fi
-
+          submodules: recursive   # the Tether SDK, built from source
       - uses: actions/setup-java@v4
-        if: steps.sdk.outputs.ok == 'true'
         with:
           distribution: temurin
           java-version: 17
-
       - uses: gradle/actions/setup-gradle@v4
-        if: steps.sdk.outputs.ok == 'true'
-
-      - name: Build the debug APK
-        if: steps.sdk.outputs.ok == 'true'
-        run: ./gradlew assembleDebug --stacktrace
-
+      - name: Build the APKs and run lint
+        run: ./gradlew assembleDebug assembleDebugAndroidTest lintDebug --stacktrace
       - uses: actions/upload-artifact@v4
-        if: steps.sdk.outputs.ok == 'true'
         with:
           name: tether-demo-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/androidTest/debug/*.apk
+
+  # Signs in through the UI against a real ejabberd on an emulator, trusts its
+  # self-signed certificate, and chats with a second account.
+  e2e:
+    needs: apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: tether-demo-debug-apk
+          path: apks
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        env:
+          APKS: apks
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash scripts/e2e-emulator.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-logs
+          path: |
+            instrument.txt
+            logcat.txt
+            ejabberd.txt
