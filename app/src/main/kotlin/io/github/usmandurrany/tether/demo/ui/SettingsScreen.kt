@@ -215,6 +215,12 @@ fun SettingsScreen(app: DemoApp, canGoBack: Boolean, onBack: () -> Unit, onConne
                 { settings = settings.copy(keepMessages = it) },
                 hint = "Ticks, read state, deletions and photos survive a restart. Off keeps them in memory only.",
             )
+            SwitchRow(
+                "Profiles and pictures",
+                settings.profiles,
+                { settings = settings.copy(profiles = it) },
+                hint = "Your name and picture for contacts, and theirs in your lists (vCard). On by default.",
+            )
 
             SectionTitle("Debug log portal (optional)")
             Hint("Uploads redacted stanza logs to a tether-debug portal while testing. Leave empty to keep logs on the device.")

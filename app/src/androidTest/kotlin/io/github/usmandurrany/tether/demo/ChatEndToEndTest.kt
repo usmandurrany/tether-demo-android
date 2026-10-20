@@ -28,6 +28,13 @@ import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.graphics.Bitmap
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.performTextReplacement
+import io.github.usmandurrany.tether.im.Avatar
+import io.github.usmandurrany.tether.im.Profile
+import java.io.ByteArrayOutputStream
+import org.junit.Assert.assertEquals
 
 /**
  * Signs in through the settings page, trusts the server's self-signed
@@ -98,13 +105,22 @@ class ChatEndToEndTest {
             runBlocking { aliceSession.answerRequest(bobJid, approve = true) }
             waitFor { !aliceSession.im.presences.contacts.value[bobJid].isNullOrEmpty() }
 
+            // Alice sets her nickname on the Me tab; bob's app can read it from her profile.
+            val aliceJid = BareJid.parse(alice)
+            compose.onNodeWithText("Me").performClick()
+            waitFor { shows("My profile") }
+            compose.onNodeWithTag("profile-nickname").performTextReplacement("Ally")
+            compose.onNodeWithTag("profile-save").performScrollTo().performClick()
+            waitFor { shows("Saved", substring = true) }
+            assertEquals("Ally", runBlocking { bobSession.chat.profile(aliceJid, refresh = true) }?.nickname)
+            compose.onNodeWithText("Chats").performClick()
+
             // Alice writes to bob.
             compose.onNodeWithText("Chat with").performTextInput(bob)
             compose.onNodeWithText("Open").performClick()
             compose.onNodeWithTag("message-input").performTextInput("Hello from the test")
             compose.onNodeWithText("Send").performClick()
 
-            val aliceJid = BareJid.parse(alice)
             waitFor {
                 bobSession.chat.allMessages.value[aliceJid].orEmpty().any { it.body == "Hello from the test" }
             }
@@ -149,6 +165,15 @@ class ChatEndToEndTest {
             waitFor {
                 bobSession.chat.allMessages.value[aliceJid].orEmpty().let { list -> list.any { it.outgoing.not() && it.deleted } && list.none { it.body == "Delete me" } }
             }
+
+            // Bob publishes a picture: his presence announces it, alice's app fetches it and the chat header shows it.
+            val picture = Avatar("image/png", ByteArrayOutputStream().also { out ->
+                Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.BLUE) }
+                    .compress(Bitmap.CompressFormat.PNG, 100, out)
+            }.toByteArray())
+            runBlocking { bobSession.chat.updateMyProfile(Profile(nickname = "Bobby", avatar = picture)) }
+            waitFor { aliceSession.chat.profiles.value[bobJid]?.avatar == picture }
+            waitFor { compose.onAllNodesWithTag("avatar-picture").fetchSemanticsNodes().isNotEmpty() }
 
             // Bob goes offline: alice sees when he was last seen.
             runBlocking { bobSession.signOut(forget = true) }

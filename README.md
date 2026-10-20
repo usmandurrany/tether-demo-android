@@ -12,6 +12,7 @@ for developers to read and copy from. It connects to any standards-compliant XMP
 | Chat | Ticks (✓ server, ✓✓ device, ✓✓ read), typing indicator, read markers sent while the chat is open, offline sending, archive paging, last seen, delete for everyone or for me (long-press) | `TetherChat.messages`, `send`, `typing`, `openChat`, `loadOlder`, `deleteForEveryone`, `deleteForMe` |
 | Chat, + menu | Photos, videos, locations and any custom type, sent as their own tags next to the caption and drawn on the other side | `MessageData`, `send(to, text, data)`, `message.data("photo")` |
 | Contacts | Roster with presence, add/remove, approve/deny subscription requests, or accept them automatically | `Roster`, `Presences`, `ChatFeatures(autoAcceptContacts)` |
+| Profiles | Your name, nickname, "about" and picture on the Me tab; contacts' pictures and names in the lists and the chat header | `TetherChat.myProfile`, `updateMyProfile`, `Contact.avatar`, `ChatFeatures(profiles)` |
 | Me | Own presence and status, invisible mode, server capabilities, push registration, disconnect / sign out | `Presences.set/hide`, `Carbons`, `Push`, `CredentialVault` |
 | Log | Every stanza in and out (credentials always redacted), connection events, log portal upload stats | `TetherDebug`, `MemorySink`, `RemoteLogSink` |
 
@@ -60,7 +61,7 @@ The **+** button in a chat sends a message with the SDK's custom data: the capti
 
 The demo has no file hosting, so photos and videos are links to files already online; it reads their size from the web server before sending.
 
-Settings has two chat switches: **Accept contact requests automatically** (`ChatFeatures(autoAcceptContacts = true)`, off by default as in the SDK) and **Keep chats on this device** (the SDK's `SqliteMessageStore`, on by default). Signing out deletes the stored chats.
+Settings has three chat switches: **Accept contact requests automatically** (`ChatFeatures(autoAcceptContacts = true)`, off by default as in the SDK), **Keep chats on this device** (the SDK's `SqliteMessageStore`, on by default) and **Profiles and pictures** (`ChatFeatures(profiles)`, vCard, on by default). A picked picture is cropped square and made a 192×192 JPEG so it fits in one stanza. Signing out deletes the stored chats.
 
 ## Connecting
 

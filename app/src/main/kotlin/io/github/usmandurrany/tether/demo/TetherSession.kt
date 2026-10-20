@@ -115,12 +115,12 @@ class TetherSession private constructor(
 
     /**
      * Messages, read markers, typing, contacts, presence, carbons, history, push,
-     * last seen and delete for everyone, on [client]. Auto-accept is the one
+     * last seen, delete for everyone and profiles, on [client]. Auto-accept is the one
      * feature that is off unless the settings turn it on.
      */
     val chat = TetherChat(
         client,
-        ChatFeatures(autoAcceptContacts = settings.autoAcceptContacts),
+        ChatFeatures(autoAcceptContacts = settings.autoAcceptContacts, profiles = settings.profiles),
         store = store,
         messageStore = messageStore,
     )

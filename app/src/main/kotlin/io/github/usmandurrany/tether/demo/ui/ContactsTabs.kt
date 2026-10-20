@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.usmandurrany.tether.core.BareJid
+import io.github.usmandurrany.tether.im.Avatar
 import io.github.usmandurrany.tether.im.MessageStatus
 import io.github.usmandurrany.tether.demo.TetherSession
 import io.github.usmandurrany.tether.im.RosterItem
@@ -95,6 +96,7 @@ fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
                     }
                 },
                 dot = presenceColor(presences[conversation.peer].best()),
+                avatar = conversation.avatar,
                 badge = conversation.unreadCount.takeIf { it > 0 },
                 onClick = { onOpenChat(conversation.peer) },
             )
@@ -107,6 +109,8 @@ fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
 fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
     val roster by session.im.roster.items.collectAsStateWithLifecycle()
     val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
+    // Profiles (vCard) the SDK fetched: a name when we gave them none, and a picture.
+    val profiles by session.chat.profiles.collectAsStateWithLifecycle()
     val requests by session.subscriptionRequests.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var adding by remember { mutableStateOf(false) }
@@ -138,14 +142,16 @@ fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
         if (contacts.isEmpty()) item { Empty("Your contact list is empty.") }
         items(contacts, key = { it.jid.toString() }) { item ->
             val presence = presences[item.jid].best()
+            val profile = profiles[item.jid]
             ListRow(
-                title = item.name ?: item.jid.toString(),
+                title = item.name ?: profile?.displayName ?: item.jid.toString(),
                 subtitle = buildString {
-                    if (item.name != null) append(item.jid).append(" · ")
+                    if (item.name != null || profile?.displayName != null) append(item.jid).append(" · ")
                     append(presenceText(presence))
                     subscriptionNote(item)?.let { append(" · ").append(it) }
                 },
                 dot = presenceColor(presence),
+                avatar = profile?.avatar,
                 onClick = { onOpenChat(item.jid) },
                 onLongClick = { removing = item },
             )
@@ -217,6 +223,7 @@ fun ListRow(
     title: String,
     subtitle: String,
     dot: androidx.compose.ui.graphics.Color,
+    avatar: Avatar? = null,
     badge: Int? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
@@ -228,7 +235,7 @@ fun ListRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Dot(dot)
+        AvatarImage(avatar, title, dot = dot)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(title, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -242,7 +249,7 @@ fun ListRow(
         }
         if (badge != null) Badge { Text(badge.toString()) }
     }
-    HorizontalDivider(Modifier.padding(start = 38.dp))
+    HorizontalDivider(Modifier.padding(start = 68.dp))
 }
 
 @Composable

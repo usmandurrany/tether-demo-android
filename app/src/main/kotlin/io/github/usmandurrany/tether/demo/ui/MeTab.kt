@@ -1,6 +1,14 @@
 package io.github.usmandurrany.tether.demo.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import io.github.usmandurrany.tether.im.Profile
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -60,6 +68,19 @@ fun MeTab(session: TetherSession, onSignOut: (forget: Boolean) -> Unit) {
     var status by remember { mutableStateOf("") }
     var presenceNote by remember { mutableStateOf<String?>(null) }
 
+    val context = LocalContext.current
+    val online = state is ConnectionState.Online
+    val mine by session.chat.myProfile.collectAsStateWithLifecycle()
+    // The form starts from our profile on the server, once it has been read.
+    var fullName by remember(mine) { mutableStateOf(mine?.fullName.orEmpty()) }
+    var nickname by remember(mine) { mutableStateOf(mine?.nickname.orEmpty()) }
+    var about by remember(mine) { mutableStateOf(mine?.note.orEmpty()) }
+    var picture by remember(mine) { mutableStateOf(mine?.avatar) }
+    var profileNote by remember { mutableStateOf<String?>(null) }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch { picture = Avatars.fromUri(context, uri) ?: picture }
+    }
+
     var service by remember { mutableStateOf("") }
     var node by remember { mutableStateOf("") }
     var options by remember { mutableStateOf("") }
@@ -69,6 +90,43 @@ fun MeTab(session: TetherSession, onSignOut: (forget: Boolean) -> Unit) {
         SectionTitle("Account")
         Text((state as? ConnectionState.Online)?.jid?.toString() ?: session.account.toString())
         Hint(state.label())
+
+        if (session.chat.features.profiles) {
+            SectionTitle("My profile")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AvatarImage(picture, nickname.ifBlank { fullName.ifBlank { session.account.local.orEmpty() } }, size = 72.dp)
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { pick.launch("image/*") }) { Text("Choose picture") }
+                        if (picture != null) TextButton(onClick = { picture = null }) { Text("Remove") }
+                    }
+                    Hint(picture?.let { "JPEG, ${it.data.size / 1024} KB, made 192×192 to fit in one message" } ?: "No picture")
+                }
+            }
+            OutlinedTextField(fullName, { fullName = it }, label = { Text("Full name") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("profile-name"))
+            OutlinedTextField(nickname, { nickname = it }, label = { Text("Nickname") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("profile-nickname"))
+            OutlinedTextField(about, { about = it }, label = { Text("About") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            Button(
+                enabled = online,
+                modifier = Modifier.testTag("profile-save"),
+                onClick = {
+                    // Copy what the server has, so fields this form does not show are kept.
+                    val updated = (mine ?: Profile()).copy(
+                        fullName = fullName.trim().ifEmpty { null },
+                        nickname = nickname.trim().ifEmpty { null },
+                        note = about.trim().ifEmpty { null },
+                        avatar = picture,
+                    )
+                    scope.launch {
+                        profileNote = runCatching { session.chat.updateMyProfile(updated) }
+                            .fold({ "Saved. Contacts see your name and picture." }, { "Failed: ${it.message}" })
+                    }
+                },
+            ) { Text("Save profile") }
+            Hint(profileNote ?: if (online) "Contacts see this (vCard)." else "Connect to edit your profile.")
+        }
 
         SectionTitle("My presence")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

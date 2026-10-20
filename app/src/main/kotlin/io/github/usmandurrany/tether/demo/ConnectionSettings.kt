@@ -41,6 +41,8 @@ data class ConnectionSettings(
     val autoAcceptContacts: Boolean = false,
     /** Keep chats in the SDK's SQLite store, so they survive a restart. */
     val keepMessages: Boolean = true,
+    /** Names and profile pictures (ChatFeatures.profiles, vCard). On, like the SDK. */
+    val profiles: Boolean = true,
 ) {
     val remoteLoggingEnabled: Boolean get() = logEndpoint.isNotBlank() && logIngestKey.isNotBlank()
 }
@@ -67,6 +69,7 @@ class SettingsStore(context: Context) {
         redactBodies = prefs.getBoolean("redactBodies", false),
         autoAcceptContacts = prefs.getBoolean("autoAcceptContacts", false),
         keepMessages = prefs.getBoolean("keepMessages", true),
+        profiles = prefs.getBoolean("profiles", true),
     )
 
     fun save(settings: ConnectionSettings) {
@@ -87,6 +90,7 @@ class SettingsStore(context: Context) {
             .putBoolean("redactBodies", settings.redactBodies)
             .putBoolean("autoAcceptContacts", settings.autoAcceptContacts)
             .putBoolean("keepMessages", settings.keepMessages)
+            .putBoolean("profiles", settings.profiles)
             .apply()
     }
 

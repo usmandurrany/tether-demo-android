@@ -83,6 +83,7 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
     val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
     val historyAvailable by session.im.history.available.collectAsStateWithLifecycle()
     val contacts by chat.contacts.collectAsStateWithLifecycle()
+    val profile = chat.profiles.collectAsStateWithLifecycle().value[peer]
     val list = rememberLazyListState()
 
     var text by rememberSaveable { mutableStateOf("") }
@@ -112,7 +113,7 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
     // Jump to the newest message when one arrives (index 0 is the history row above the messages).
     LaunchedEffect(messages.size, messages.lastOrNull()?.id) { if (messages.isNotEmpty()) list.scrollToItem(messages.size) }
 
-    val name = roster[peer]?.name ?: peer.toString()
+    val name = roster[peer]?.name ?: profile?.displayName ?: peer.toString()
     val presence = presences[peer].best()
     // Last seen comes from the SDK (XEP-0012, or when we saw them go offline).
     val lastSeen = contacts.firstOrNull { it.jid == peer }?.lastSeen
@@ -127,9 +128,13 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
             TopAppBar(
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
                 title = {
-                    Column {
-                        Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AvatarImage(profile?.avatar, name, size = 36.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 },
             )
