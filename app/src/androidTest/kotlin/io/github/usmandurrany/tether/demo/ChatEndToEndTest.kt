@@ -76,7 +76,8 @@ class ChatEndToEndTest {
         val bobSession = runBlocking {
             TetherSession.create(
                 app,
-                ConnectionSettings(jid = bob, host = host, pinnedCertificates = pins),
+                // Bob accepts contact requests automatically (off by default).
+                ConnectionSettings(jid = bob, host = host, pinnedCertificates = pins, autoAcceptContacts = true),
                 password,
                 MemoryKeyValueStore(),
                 installId = "test",
@@ -87,6 +88,16 @@ class ChatEndToEndTest {
         var bobSignedIn = true
 
         try {
+            // Alice adds bob; bob's app accepts at once and asks back; alice approves. Now each
+            // sees the other's presence, which last seen needs.
+            val aliceSession = app.session.value!!
+            val bobJid = BareJid.parse(bob)
+            runBlocking { aliceSession.addContact(bobJid, "Bob") }
+            waitFor { bobJid in aliceSession.subscriptionRequests.value }
+            assertTrue("auto-accept leaves no request waiting", bobSession.subscriptionRequests.value.isEmpty())
+            runBlocking { aliceSession.answerRequest(bobJid, approve = true) }
+            waitFor { !aliceSession.im.presences.contacts.value[bobJid].isNullOrEmpty() }
+
             // Alice writes to bob.
             compose.onNodeWithText("Chat with").performTextInput(bob)
             compose.onNodeWithText("Open").performClick()
