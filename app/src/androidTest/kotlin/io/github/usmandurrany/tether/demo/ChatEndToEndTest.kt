@@ -3,7 +3,9 @@ package io.github.usmandurrany.tether.demo
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ComposeTimeoutException
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -103,13 +105,13 @@ class ChatEndToEndTest {
 
             // Bob answers; alice sees it.
             runBlocking { bobSession.send(aliceJid, "Hi alice") }
-            waitFor { shows("Hi alice") }
+            waitFor { inChat("Hi alice") }
 
             // Custom data: a location and an app-defined type arrive as their own tags and are drawn.
             bobSession.send(aliceJid, "", Attachments.location(51.50135, -0.14189, "Buckingham Palace"))
-            waitFor { shows("Location: Buckingham Palace") }
+            waitFor { inChat("Location: Buckingham Palace") }
             bobSession.send(aliceJid, "My card", MessageData("contact-card", "name" to "Ada Lovelace"))
-            waitFor { shows("Custom data: contact-card") && shows("name = Ada Lovelace") }
+            waitFor { inChat("Custom data: contact-card") && inChat("name = Ada Lovelace") }
 
             // Alice shares a location from the chat's + menu; bob reads it as data.
             compose.onNodeWithTag("attach").performClick()
@@ -122,14 +124,15 @@ class ChatEndToEndTest {
 
             // Bob deletes a message for everyone: alice sees the placeholder.
             val oops = bobSession.chat.send(aliceJid, "oops, wrong chat")
-            waitFor { shows("oops, wrong chat") }
+            waitFor { inChat("oops, wrong chat") }
             bobSession.chat.deleteForEveryone(oops)
-            waitFor { shows("This message was deleted") && !shows("oops, wrong chat") }
+            waitFor { inChat("This message was deleted") && !shows("oops, wrong chat") }
 
             // Alice deletes a message for everyone with a long press: gone on bob's side too.
             compose.onNodeWithTag("message-input").performTextInput("Delete me")
             compose.onNodeWithText("Send").performClick()
             waitFor { bobSession.chat.allMessages.value[aliceJid].orEmpty().any { it.body == "Delete me" } }
+            waitFor { inChat("Delete me") }
             compose.onNodeWithText("Delete me", substring = true).performTouchInput { longClick() }
             compose.onNodeWithTag("delete-everyone").performClick()
             waitFor {
@@ -164,6 +167,10 @@ class ChatEndToEndTest {
             )
         }
     }
+
+    /** On the chat screen, scrolling the message list to it if needed. */
+    private fun inChat(text: String): Boolean =
+        shows(text) || runCatching { compose.onNodeWithTag("messages").performScrollToNode(hasText(text)) }.isSuccess && shows(text)
 
     private fun shows(text: String, substring: Boolean = false): Boolean =
         compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()

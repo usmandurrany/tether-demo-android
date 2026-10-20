@@ -109,7 +109,8 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
         chat.openChat(peer)
         onDispose { chat.closeChat(peer) }
     }
-    LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.animateScrollToItem(messages.size) }
+    // Jump to the newest message when one arrives (index 0 is the history row above the messages).
+    LaunchedEffect(messages.size, messages.lastOrNull()?.id) { if (messages.isNotEmpty()) list.scrollToItem(messages.size) }
 
     val name = roster[peer]?.name ?: peer.toString()
     val presence = presences[peer].best()
@@ -141,7 +142,7 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
                 .consumeWindowInsets(padding)
                 .imePadding(),
         ) {
-            LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(state = list, modifier = Modifier.weight(1f).fillMaxWidth().testTag("messages")) {
                 item {
                     Box(Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
                         when {
