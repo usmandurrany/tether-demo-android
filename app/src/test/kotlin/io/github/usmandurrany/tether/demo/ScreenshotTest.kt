@@ -94,7 +94,7 @@ class ScreenshotTest {
     }
 
     @Test
-    @Config(qualifiers = "w390dp-h2300dp-xxhdpi")
+    @Config(qualifiers = "w390dp-h2500dp-xxhdpi")
     fun settingsAllOpen() = shoot("02-settings-all-open") {
         SettingsScreen(filledSettings, canGoBack = true, actions = SettingsActions(), initiallyExpanded = true)
     }
