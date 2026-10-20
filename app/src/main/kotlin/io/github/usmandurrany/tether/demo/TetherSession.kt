@@ -33,7 +33,6 @@ import io.github.usmandurrany.tether.im.SubscriptionEvent
 import io.github.usmandurrany.tether.im.TetherChat
 import io.github.usmandurrany.tether.sasl.SaslConfig
 import io.github.usmandurrany.tether.transport.TlsConfig
-import io.github.usmandurrany.tether.transport.TlsVerificationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -202,7 +201,7 @@ class TetherSession private constructor(
      */
     suspend fun signOut(forget: Boolean) {
         debug.log(LogLevel.INFO, "app", if (forget) "Signing out" else "Disconnecting")
-        if (forget) runCatching { im.push.unregister() }
+        if (forget) runCatching { chat.unregisterPush() }
         runCatching { client.disconnect() }
         remoteLogs?.flush()
         binding.close()
@@ -258,17 +257,6 @@ class TetherSession private constructor(
             val account = runCatching { BareJid.parse(jid.trim()) }.getOrNull() ?: return false
             if (account.local == null) return false
             return CredentialVault(store).loadKeys(account).isNotEmpty()
-        }
-
-        /** The fingerprint to offer for pinning when the server's certificate was refused. */
-        fun refusedCertificate(error: Throwable): String? {
-            if (error !is XmppNegotiationException || error.failure != NegotiationFailure.TLS_VERIFICATION) return null
-            var cause: Throwable? = error
-            while (cause != null) {
-                if (cause is TlsVerificationException) return cause.peerCertificateSha256
-                cause = cause.cause
-            }
-            return null
         }
 
         /** A short, human message for a connection error. */

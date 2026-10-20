@@ -102,7 +102,7 @@ setting up Firebase. In your app, the token comes from FCM:
 class PushService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         appScope.launch {
-            im.push.register(PushTarget(
+            chat.registerPush(PushTarget(
                 service = "pubsub.example.com",          // MongooseIM; other servers: your push app server's JID
                 node = deviceId,
                 publishOptions = mapOf("device_id" to token, "service" to "fcm"),
@@ -112,7 +112,7 @@ class PushService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        client.wake()   // check the connection now instead of waiting for the next retry
+        chat.client.wake()   // check the connection now instead of waiting for the next retry
     }
 }
 ```

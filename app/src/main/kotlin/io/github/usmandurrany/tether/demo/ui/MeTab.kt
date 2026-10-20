@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.usmandurrany.tether.core.ConnectionState
 import io.github.usmandurrany.tether.demo.TetherSession
-import io.github.usmandurrany.tether.im.OwnPresence
 import io.github.usmandurrany.tether.im.PushState
 import io.github.usmandurrany.tether.im.PushTarget
 import io.github.usmandurrany.tether.im.Show
@@ -62,7 +61,7 @@ fun MeTab(session: TetherSession, onSignOut: (forget: Boolean) -> Unit) {
     val live by session.client.session.collectAsStateWithLifecycle()
     val carbons by session.im.carbons.enabled.collectAsStateWithLifecycle()
     val history by session.im.history.available.collectAsStateWithLifecycle()
-    val push by session.im.push.state.collectAsStateWithLifecycle()
+    val push by session.chat.pushState.collectAsStateWithLifecycle()
 
     var choice by remember { mutableStateOf(PresenceChoice.AVAILABLE) }
     var status by remember { mutableStateOf("") }
@@ -146,11 +145,7 @@ fun MeTab(session: TetherSession, onSignOut: (forget: Boolean) -> Unit) {
         Button(onClick = {
             scope.launch {
                 presenceNote = runCatching {
-                    if (choice == PresenceChoice.INVISIBLE) {
-                        session.im.presences.hide()
-                    } else {
-                        session.im.presences.set(OwnPresence(show = choice.show, status = status.ifBlank { null }))
-                    }
+                    session.chat.setPresence(choice.show, status.ifBlank { null }, invisible = choice == PresenceChoice.INVISIBLE)
                 }.fold({ "Updated. Contacts see this on every connection." }, { "Failed: ${it.message}" })
             }
         }) { Text("Update presence") }

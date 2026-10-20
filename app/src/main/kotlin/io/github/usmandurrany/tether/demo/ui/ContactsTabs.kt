@@ -45,7 +45,7 @@ import io.github.usmandurrany.tether.core.BareJid
 import io.github.usmandurrany.tether.im.Avatar
 import io.github.usmandurrany.tether.im.MessageStatus
 import io.github.usmandurrany.tether.demo.TetherSession
-import io.github.usmandurrany.tether.im.RosterItem
+import io.github.usmandurrany.tether.im.Contact
 import io.github.usmandurrany.tether.im.Subscription
 import kotlinx.coroutines.launch
 
@@ -54,7 +54,6 @@ import kotlinx.coroutines.launch
 fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
     // Newest first, with names, unread counts and typing, kept by the SDK.
     val conversations by session.chat.conversations.collectAsStateWithLifecycle()
-    val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
     var address by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -95,7 +94,7 @@ fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
                         if (last.status == MessageStatus.FAILED) append("  (failed)")
                     }
                 },
-                dot = presenceColor(presences[conversation.peer].best()),
+                dot = if (conversation.online) Online else Offline,
                 avatar = conversation.avatar,
                 badge = conversation.unreadCount.takeIf { it > 0 },
                 onClick = { onOpenChat(conversation.peer) },
@@ -104,21 +103,17 @@ fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
     }
 }
 
-/** The roster with presence, pending subscription requests, and add/remove. */
+/** The contact list with presence, pending subscription requests, and add/remove. */
 @Composable
 fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
-    val roster by session.im.roster.items.collectAsStateWithLifecycle()
-    val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
-    // Profiles (vCard) the SDK fetched: a name when we gave them none, and a picture.
-    val profiles by session.chat.profiles.collectAsStateWithLifecycle()
+    // Name (ours for them, else their profile's), picture, presence and subscription, kept by the SDK.
+    val all by session.chat.contacts.collectAsStateWithLifecycle()
     val requests by session.subscriptionRequests.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var adding by remember { mutableStateOf(false) }
-    var removing by remember { mutableStateOf<RosterItem?>(null) }
+    var removing by remember { mutableStateOf<Contact?>(null) }
 
-    val contacts = roster.values.sortedWith(
-        compareBy<RosterItem> { presences[it.jid] == null }.thenBy { (it.name ?: it.jid.toString()).lowercase() },
-    )
+    val contacts = all.sortedBy { !it.online } // the SDK sorts by name; online first keeps that order within each
 
     LazyColumn(Modifier.fillMaxSize()) {
         items(requests.toList(), key = { "request-$it" }) { jid ->
@@ -135,25 +130,23 @@ fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
         }
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Hint("${roster.size} contacts · long-press to remove", Modifier.weight(1f))
+                Hint("${all.size} contacts · long-press to remove", Modifier.weight(1f))
                 TextButton(onClick = { adding = true }) { Text("Add contact") }
             }
         }
         if (contacts.isEmpty()) item { Empty("Your contact list is empty.") }
-        items(contacts, key = { it.jid.toString() }) { item ->
-            val presence = presences[item.jid].best()
-            val profile = profiles[item.jid]
+        items(contacts, key = { it.jid.toString() }) { contact ->
             ListRow(
-                title = item.name ?: profile?.displayName ?: item.jid.toString(),
+                title = contact.name,
                 subtitle = buildString {
-                    if (item.name != null || profile?.displayName != null) append(item.jid).append(" · ")
-                    append(presenceText(presence))
-                    subscriptionNote(item)?.let { append(" · ").append(it) }
+                    append(contact.jid).append(" · ")
+                    append(presenceText(contact.show, contact.status, contact.online))
+                    subscriptionNote(contact)?.let { append(" · ").append(it) }
                 },
-                dot = presenceColor(presence),
-                avatar = profile?.avatar,
-                onClick = { onOpenChat(item.jid) },
-                onLongClick = { removing = item },
+                dot = presenceColor(contact.show, contact.online),
+                avatar = contact.avatar,
+                onClick = { onOpenChat(contact.jid) },
+                onLongClick = { removing = contact },
             )
         }
     }
@@ -166,7 +159,7 @@ fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
     removing?.let { item ->
         AlertDialog(
             onDismissRequest = { removing = null },
-            title = { Text("Remove ${item.name ?: item.jid}?") },
+            title = { Text("Remove ${item.name}?") },
             text = { Text("They are removed from your contacts and presence sharing ends both ways.") },
             confirmButton = {
                 TextButton(onClick = {
@@ -179,8 +172,8 @@ fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
     }
 }
 
-private fun subscriptionNote(item: RosterItem): String? = when {
-    item.pendingOut -> "request sent"
+private fun subscriptionNote(item: Contact): String? = when {
+    item.pending -> "request sent"
     item.subscription == Subscription.NONE -> "not sharing presence"
     item.subscription == Subscription.FROM -> "they can't share theirs yet"
     item.subscription == Subscription.TO -> "you don't share yours"

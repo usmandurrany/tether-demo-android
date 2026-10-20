@@ -79,10 +79,9 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
     val chat = session.chat
     val messages by remember(peer) { chat.messages(peer) }.collectAsStateWithLifecycle()
     val typing by chat.typingContacts.collectAsStateWithLifecycle()
-    val roster by session.im.roster.items.collectAsStateWithLifecycle()
-    val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
     val historyAvailable by session.im.history.available.collectAsStateWithLifecycle()
     val contacts by chat.contacts.collectAsStateWithLifecycle()
+    // Someone not in our contacts still has a profile (name and picture) once fetched.
     val profile = chat.profiles.collectAsStateWithLifecycle().value[peer]
     val list = rememberLazyListState()
 
@@ -113,14 +112,14 @@ fun ChatScreen(session: TetherSession, peer: BareJid, onBack: () -> Unit) {
     // Jump to the newest message when one arrives (index 0 is the history row above the messages).
     LaunchedEffect(messages.size, messages.lastOrNull()?.id) { if (messages.isNotEmpty()) list.scrollToItem(messages.size) }
 
-    val name = roster[peer]?.name ?: profile?.displayName ?: peer.toString()
-    val presence = presences[peer].best()
-    // Last seen comes from the SDK (XEP-0012, or when we saw them go offline).
-    val lastSeen = contacts.firstOrNull { it.jid == peer }?.lastSeen
+    // The SDK's Contact has the name (ours for them, else their profile's), presence and last seen.
+    val contact = contacts.firstOrNull { it.jid == peer }
+    val name = contact?.name ?: profile?.displayName ?: peer.toString()
+    val lastSeen = contact?.lastSeen
     val subtitle = when {
         peer in typing -> "typing…"
-        presence == null && lastSeen != null -> "last seen ${lastSeenText(lastSeen)}"
-        else -> presenceText(presence)
+        contact?.online != true && lastSeen != null -> "last seen ${lastSeenText(lastSeen)}"
+        else -> presenceText(contact?.show, contact?.status, contact?.online == true)
     }
 
     Scaffold(
