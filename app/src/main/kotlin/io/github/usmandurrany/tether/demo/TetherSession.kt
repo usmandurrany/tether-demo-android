@@ -2,6 +2,7 @@ package io.github.usmandurrany.tether.demo
 
 import android.content.Context
 import android.util.Log
+import io.github.usmandurrany.tether.android.SqliteMessageStore
 import io.github.usmandurrany.tether.android.TetherAndroid
 import io.github.usmandurrany.tether.core.BareJid
 import io.github.usmandurrany.tether.core.ClientPolicy
@@ -25,6 +26,8 @@ import io.github.usmandurrany.tether.debug.TetherDebug
 import io.github.usmandurrany.tether.debug.http
 import io.github.usmandurrany.tether.im.ChatFeatures
 import io.github.usmandurrany.tether.im.InstantMessaging
+import io.github.usmandurrany.tether.im.MessageData
+import io.github.usmandurrany.tether.im.MessageStore
 import io.github.usmandurrany.tether.im.PushTarget
 import io.github.usmandurrany.tether.im.SubscriptionEvent
 import io.github.usmandurrany.tether.im.TetherChat
@@ -107,8 +110,20 @@ class TetherSession private constructor(
         credentials = CredentialVault(store),
     )
 
-    /** Messages, read markers, typing, contacts, presence, carbons, history and push, on [client]. */
-    val chat = TetherChat(client, ChatFeatures(), store = store)
+    /** Kept in the SDK's SQLite database, one per account, unless the settings say memory only. */
+    private val messageStore: MessageStore? = if (settings.keepMessages) SqliteMessageStore(app, account) else null
+
+    /**
+     * Messages, read markers, typing, contacts, presence, carbons, history, push,
+     * last seen and delete for everyone, on [client]. Auto-accept is the one
+     * feature that is off unless the settings turn it on.
+     */
+    val chat = TetherChat(
+        client,
+        ChatFeatures(autoAcceptContacts = settings.autoAcceptContacts),
+        store = store,
+        messageStore = messageStore,
+    )
 
     /** The protocol-level features under [chat], for the Me tab's details. */
     val im: InstantMessaging get() = chat.im
@@ -127,7 +142,11 @@ class TetherSession private constructor(
         scope.launch {
             im.presences.subscriptions.collect { event ->
                 when (event) {
-                    is SubscriptionEvent.Requested -> debug.log(LogLevel.INFO, "app", "${event.from} asked to see our presence")
+                    is SubscriptionEvent.Requested -> debug.log(
+                        LogLevel.INFO,
+                        "app",
+                        "${event.from} asked to see our presence" + if (settings.autoAcceptContacts) " (accepted automatically)" else "",
+                    )
                     is SubscriptionEvent.Approved -> debug.log(LogLevel.INFO, "app", "${event.from} approved our request")
                     is SubscriptionEvent.Revoked -> debug.log(LogLevel.INFO, "app", "${event.from} denied or revoked our subscription")
                     is SubscriptionEvent.Unsubscribed -> debug.log(LogLevel.INFO, "app", "${event.from} stopped seeing our presence")
@@ -147,6 +166,14 @@ class TetherSession private constructor(
     /** Works offline too: the SDK keeps the message in its outbox and sends it on the next connection. */
     fun send(to: BareJid, body: String) {
         chat.send(to, body)
+    }
+
+    /**
+     * Sends custom data (a photo, video, location or any other type) with a
+     * caption. Without one, the body is a link other XMPP apps can open.
+     */
+    fun send(to: BareJid, caption: String, data: MessageData) {
+        chat.send(to, caption.ifBlank { Attachments.fallbackText(data) }, data)
     }
 
     // --- Contacts and presence -------------------------------------------------------
@@ -181,7 +208,11 @@ class TetherSession private constructor(
         binding.close()
         chat.close()
         remoteLogs?.close()
-        if (forget) CredentialVault(store).clear(account)
+        if (forget) {
+            CredentialVault(store).clear(account)
+            // Signing out also forgets this account's chats on the device.
+            runCatching { (messageStore ?: SqliteMessageStore(app, account)).clear() }
+        }
         scope.cancel()
     }
 

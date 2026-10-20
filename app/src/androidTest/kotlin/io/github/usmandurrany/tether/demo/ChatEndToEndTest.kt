@@ -6,12 +6,16 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.usmandurrany.tether.core.BareJid
 import io.github.usmandurrany.tether.core.ConnectResult
 import io.github.usmandurrany.tether.core.MemoryKeyValueStore
+import io.github.usmandurrany.tether.im.MessageData
+import io.github.usmandurrany.tether.im.data
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -21,7 +25,9 @@ import org.junit.runner.RunWith
 
 /**
  * Signs in through the settings page, trusts the server's self-signed
- * certificate, and chats with a second account, against a real server.
+ * certificate, and chats with a second account, against a real server:
+ * ticks, custom data (locations and an app-defined type), deleting for
+ * everyone both ways, and last seen.
  *
  * Needs two accounts with the same password on a test server, for example:
  * ```
@@ -72,6 +78,7 @@ class ChatEndToEndTest {
             )
         }
         assertTrue(runBlocking { bobSession.connect() } is ConnectResult.Connected)
+        var bobSignedIn = true
 
         try {
             // Alice writes to bob.
@@ -93,8 +100,43 @@ class ChatEndToEndTest {
             // Bob answers; alice sees it.
             runBlocking { bobSession.send(aliceJid, "Hi alice") }
             compose.waitUntil(TIMEOUT) { shows("Hi alice") }
-        } finally {
+
+            // Custom data: a location and an app-defined type arrive as their own tags and are drawn.
+            bobSession.send(aliceJid, "", Attachments.location(51.50135, -0.14189, "Buckingham Palace"))
+            compose.waitUntil(TIMEOUT) { shows("Location: Buckingham Palace") }
+            bobSession.send(aliceJid, "My card", MessageData("contact-card", "name" to "Ada Lovelace"))
+            compose.waitUntil(TIMEOUT) { shows("Custom data: contact-card") && shows("name = Ada Lovelace") }
+
+            // Alice shares a location from the chat's + menu; bob reads it as data.
+            compose.onNodeWithTag("attach").performClick()
+            compose.onNodeWithText("Location").performClick()
+            compose.onNodeWithTag("attach-send").performClick()
+            compose.waitUntil(TIMEOUT) {
+                bobSession.chat.allMessages.value[aliceJid].orEmpty().any { it.data(Attachments.LOCATION)?.string("label") == "Buckingham Palace" }
+            }
+
+            // Bob deletes a message for everyone: alice sees the placeholder.
+            val oops = bobSession.chat.send(aliceJid, "oops, wrong chat")
+            compose.waitUntil(TIMEOUT) { shows("oops, wrong chat") }
+            bobSession.chat.deleteForEveryone(oops)
+            compose.waitUntil(TIMEOUT) { shows("This message was deleted") && !shows("oops, wrong chat") }
+
+            // Alice deletes a message for everyone with a long press: gone on bob's side too.
+            compose.onNodeWithTag("message-input").performTextInput("Delete me")
+            compose.onNodeWithText("Send").performClick()
+            compose.waitUntil(TIMEOUT) { bobSession.chat.allMessages.value[aliceJid].orEmpty().any { it.body == "Delete me" } }
+            compose.onNodeWithText("Delete me", substring = true).performTouchInput { longClick() }
+            compose.onNodeWithTag("delete-everyone").performClick()
+            compose.waitUntil(TIMEOUT) {
+                bobSession.chat.allMessages.value[aliceJid].orEmpty().let { list -> list.any { it.outgoing.not() && it.deleted } && list.none { it.body == "Delete me" } }
+            }
+
+            // Bob goes offline: alice sees when he was last seen.
             runBlocking { bobSession.signOut(forget = true) }
+            bobSignedIn = false
+            compose.waitUntil(TIMEOUT) { shows("last seen", substring = true) }
+        } finally {
+            if (bobSignedIn) runBlocking { bobSession.signOut(forget = true) }
         }
     }
 

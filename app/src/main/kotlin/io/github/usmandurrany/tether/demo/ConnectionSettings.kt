@@ -37,6 +37,10 @@ data class ConnectionSettings(
     val logLabel: String = "",
     /** Replace message bodies with their length in logs. */
     val redactBodies: Boolean = false,
+    /** Accept every contact request at once (ChatFeatures.autoAcceptContacts). Off, like the SDK. */
+    val autoAcceptContacts: Boolean = false,
+    /** Keep chats in the SDK's SQLite store, so they survive a restart. */
+    val keepMessages: Boolean = true,
 ) {
     val remoteLoggingEnabled: Boolean get() = logEndpoint.isNotBlank() && logIngestKey.isNotBlank()
 }
@@ -61,6 +65,8 @@ class SettingsStore(context: Context) {
         logIngestKey = prefs.getString("logIngestKey", "").orEmpty(),
         logLabel = prefs.getString("logLabel", "").orEmpty(),
         redactBodies = prefs.getBoolean("redactBodies", false),
+        autoAcceptContacts = prefs.getBoolean("autoAcceptContacts", false),
+        keepMessages = prefs.getBoolean("keepMessages", true),
     )
 
     fun save(settings: ConnectionSettings) {
@@ -79,6 +85,8 @@ class SettingsStore(context: Context) {
             .putString("logIngestKey", settings.logIngestKey.trim())
             .putString("logLabel", settings.logLabel.trim())
             .putBoolean("redactBodies", settings.redactBodies)
+            .putBoolean("autoAcceptContacts", settings.autoAcceptContacts)
+            .putBoolean("keepMessages", settings.keepMessages)
             .apply()
     }
 
