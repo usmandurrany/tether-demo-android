@@ -27,6 +27,39 @@ jobs:
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/androidTest/debug/*.apk
 
+  # Renders every screen with sample data on the JVM (Robolectric + Roborazzi).
+  # Run the workflow by hand to refresh the README's pictures in docs/screenshots.
+  screenshots:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Render the screens
+        run: ./gradlew testDebugUnitTest --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: app/build/screenshots
+      - name: Commit them to docs/screenshots
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          mkdir -p docs/screenshots
+          cp app/build/screenshots/*.png docs/screenshots/
+          git add docs/screenshots
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Update screenshots"
+          git push origin HEAD:${{ github.ref_name }}
+
   # Signs in through the UI against a real ejabberd on an emulator, trusts its
   # self-signed certificate, and chats with a second account.
   e2e:

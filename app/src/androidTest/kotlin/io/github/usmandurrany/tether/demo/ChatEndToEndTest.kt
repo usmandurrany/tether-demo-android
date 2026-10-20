@@ -8,6 +8,7 @@ import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -29,6 +30,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import android.graphics.Bitmap
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performTextReplacement
 import io.github.usmandurrany.tether.im.Avatar
@@ -70,8 +72,10 @@ class ChatEndToEndTest {
         // Sign in as alice through the settings page.
         compose.onNodeWithText("Address (JID)").performTextInput(alice)
         compose.onNodeWithText("Password").performTextInput(password)
-        compose.onNodeWithText("Host (optional)").performTextInput(host!!)
-        compose.onNodeWithText("Connect").performScrollTo().performClick()
+        // The server group is folded to a summary until opened.
+        compose.onNodeWithText("Server").performScrollTo().performClick()
+        compose.onNodeWithText("Host (optional)").performScrollTo().performTextInput(host!!)
+        compose.onNodeWithText("Connect").performClick()
 
         waitFor { shows("Trust and connect") || shows("Online") }
         if (shows("Trust and connect")) compose.onNodeWithText("Trust and connect").performClick()
@@ -117,18 +121,18 @@ class ChatEndToEndTest {
 
             // Alice writes to bob.
             compose.onNodeWithText("Chat with").performTextInput(bob)
-            compose.onNodeWithText("Open").performClick()
+            compose.onNodeWithContentDescription("Open").performClick()
             compose.onNodeWithTag("message-input").performTextInput("Hello from the test")
-            compose.onNodeWithText("Send").performClick()
+            compose.onNodeWithContentDescription("Send").performClick()
 
             waitFor {
                 bobSession.chat.allMessages.value[aliceJid].orEmpty().any { it.body == "Hello from the test" }
             }
             // Bob's device confirmed it (XEP-0184): two ticks.
-            waitFor { shows("✓✓", substring = true) }
-            // Bob opens the chat: the SDK sends a read marker (XEP-0333) and alice sees "read".
+            waitFor { described("Delivered") || described("Read") }
+            // Bob opens the chat: the SDK sends a read marker (XEP-0333) and alice sees the read ticks.
             bobSession.chat.openChat(aliceJid)
-            waitFor { shows("✓✓ read", substring = true) }
+            waitFor { described("Read") }
 
             // Bob answers; alice sees it.
             runBlocking { bobSession.send(aliceJid, "Hi alice") }
@@ -157,7 +161,7 @@ class ChatEndToEndTest {
 
             // Alice deletes a message for everyone with a long press: gone on bob's side too.
             compose.onNodeWithTag("message-input").performTextInput("Delete me")
-            compose.onNodeWithText("Send").performClick()
+            compose.onNodeWithContentDescription("Send").performClick()
             waitFor { bobSession.chat.allMessages.value[aliceJid].orEmpty().any { it.body == "Delete me" } }
             waitFor { inChat("Delete me") }
             compose.onNodeWithText("Delete me", substring = true).performTouchInput { longClick() }
@@ -207,6 +211,10 @@ class ChatEndToEndTest {
     /** On the chat screen, scrolling the message list to it if needed. */
     private fun inChat(text: String): Boolean =
         shows(text) || runCatching { compose.onNodeWithTag("messages").performScrollToNode(hasText(text)) }.isSuccess && shows(text)
+
+    /** An icon with this description is on screen, such as the ticks' "Delivered" and "Read". */
+    private fun described(description: String): Boolean =
+        compose.onAllNodesWithContentDescription(description).fetchSemanticsNodes().isNotEmpty()
 
     private fun shows(text: String, substring: Boolean = false): Boolean =
         compose.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()

@@ -1,4 +1,285 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Tether Demo</string>
+
+    <!-- Connection state (top bar and settings page) -->
+    <string name="state_idle">Offline</string>
+    <string name="state_waiting_for_network">Waiting for network</string>
+    <string name="state_connecting">Connecting</string>
+    <string name="state_connecting_attempt">Connecting (attempt %1$d)</string>
+    <string name="state_online">Online</string>
+    <string name="state_backoff">Reconnecting in %1$ds</string>
+    <string name="state_paused">Paused in background</string>
+    <string name="state_terminal">Stopped: %1$s</string>
+    <string name="retry">Retry</string>
+    <string name="settings">Settings</string>
+    <string name="back">Back</string>
+    <string name="cancel">Cancel</string>
+    <string name="picture_of">Picture of %1$s</string>
+
+    <!-- Presence -->
+    <string name="presence_offline">Offline</string>
+    <string name="presence_available">Available</string>
+    <string name="presence_chat">Free to chat</string>
+    <string name="presence_away">Away</string>
+    <string name="presence_xa">Extended away</string>
+    <string name="presence_dnd">Do not disturb</string>
+    <string name="presence_invisible">Invisible</string>
+    <string name="presence_with_status">%1$s · %2$s</string>
+
+    <!-- Bottom navigation -->
+    <string name="tab_chats">Chats</string>
+    <string name="tab_contacts">Contacts</string>
+    <string name="tab_me">Me</string>
+    <string name="tab_log">Log</string>
+
+    <!-- Connection settings -->
+    <string name="settings_title">Connection settings</string>
+    <string name="settings_intro">Works with any standards-compliant XMPP server (ejabberd, Prosody, Openfire, MongooseIM…).</string>
+    <string name="section_account">Account</string>
+    <string name="field_jid">Address (JID)</string>
+    <string name="field_jid_placeholder">alice@example.com</string>
+    <string name="field_password">Password</string>
+    <string name="field_password_saved">Saved login — leave empty</string>
+    <string name="show_password">Show password</string>
+    <string name="hide_password">Hide password</string>
+    <string name="hint_saved_login">This device has a saved login for this address. Type a password only to replace it.</string>
+    <string name="hint_password">Used once. Tether saves only the derived login keys, encrypted with the Android Keystore.</string>
+    <string name="field_resource">Resource (optional)</string>
+    <string name="field_resource_placeholder">Chosen by the server</string>
+
+    <string name="section_server">Server</string>
+    <string name="field_host">Host (optional)</string>
+    <string name="field_host_placeholder">Found through DNS SRV</string>
+    <string name="field_port">Port (optional)</string>
+    <string name="hint_host">Set a host (name or IP address) to skip DNS, for example a server on your LAN.</string>
+    <string name="direct_tls">Direct TLS</string>
+    <string name="hint_direct_tls">TLS from the first byte (usually port 5223) instead of STARTTLS. Needs a host.</string>
+    <string name="field_pins">Trusted certificate fingerprints (optional)</string>
+    <string name="field_pins_placeholder">SHA-256, one per line</string>
+    <string name="hint_pins">For self-signed servers. Leave empty to verify certificates normally. You\'ll be offered the fingerprint if verification fails.</string>
+
+    <string name="section_login_methods">Login methods</string>
+    <string name="allow_plain">Allow PLAIN</string>
+    <string name="hint_allow_plain">Only over verified TLS. SCRAM is always preferred.</string>
+    <string name="allow_scram_sha1">Allow SCRAM-SHA-1</string>
+    <string name="hint_allow_scram_sha1">For old servers without SHA-256.</string>
+
+    <string name="section_background">In the background</string>
+    <string name="mode_close">Disconnect (push notifications)</string>
+    <string name="mode_close_hint">Closes cleanly 5 s after the app is hidden, so the server stores messages and sends push.</string>
+    <string name="mode_detach">Detach, resume on return</string>
+    <string name="mode_detach_hint">Drops the socket but keeps the session resumable, for a fast return.</string>
+    <string name="mode_stay">Stay connected</string>
+    <string name="mode_stay_hint">Keeps the connection open and tells the server the app is inactive (CSI).</string>
+    <string name="auto_connect">Connect on app start</string>
+    <string name="hint_auto_connect">Uses the saved login.</string>
+
+    <string name="section_chats">Chats</string>
+    <string name="auto_accept">Accept contact requests automatically</string>
+    <string name="hint_auto_accept">Anyone who adds you sees when you\'re online and is added back. Off by default.</string>
+    <string name="keep_messages">Keep chats on this device</string>
+    <string name="hint_keep_messages">Ticks, read state, deletions and photos survive a restart. Off keeps them in memory only.</string>
+    <string name="profiles">Profiles and pictures</string>
+    <string name="hint_profiles">Your name and picture for contacts, and theirs in your lists (vCard). On by default.</string>
+
+    <string name="section_log_portal">Debug log portal (optional)</string>
+    <string name="hint_log_portal">Uploads redacted stanza logs to a tether-debug portal while testing. Leave empty to keep logs on the device.</string>
+    <string name="field_portal_url">Portal URL</string>
+    <string name="field_portal_url_placeholder">https://logs.example.com</string>
+    <string name="field_ingest_key">Ingest key</string>
+    <string name="field_label">Label (optional)</string>
+    <string name="field_label_placeholder">beta-1</string>
+    <string name="redact_bodies">Hide message text in logs</string>
+
+    <string name="connect">Connect</string>
+    <string name="reconnect">Reconnect with these settings</string>
+    <string name="error_pins">Each fingerprint must be 64 hex characters (colons and spaces are fine).</string>
+
+    <!-- One-line summaries on folded settings groups -->
+    <string name="summary_dns">DNS SRV</string>
+    <string name="summary_host">%1$s</string>
+    <string name="summary_host_port">%1$s:%2$s</string>
+    <string name="summary_starttls">STARTTLS</string>
+    <string name="summary_pins">%1$d pinned certificates</string>
+    <string name="summary_on">%1$s on</string>
+    <string name="summary_off">%1$s off</string>
+    <string name="summary_plain">PLAIN</string>
+    <string name="summary_scram_sha1">SCRAM-SHA-1</string>
+    <string name="summary_auto_connect">connect on app start</string>
+    <string name="summary_auto_accept">Auto-accept</string>
+    <string name="summary_kept">kept on this device</string>
+    <string name="summary_memory">memory only</string>
+    <string name="summary_profiles">profiles</string>
+    <string name="summary_portal_off">Not set, logs stay on the device</string>
+    <string name="summary_separator">" · "</string>
+
+    <!-- Untrusted certificate -->
+    <string name="trust_title">Trust this certificate?</string>
+    <string name="trust_text">%1$s If this is your own server with a self-signed certificate, check that its SHA-256 fingerprint is:</string>
+    <string name="trust_warning">Only trust it if it matches. Tether will then accept this certificate and no other.</string>
+    <string name="trust_and_connect">Trust and connect</string>
+
+    <!-- Chats -->
+    <string name="chat_with">Chat with</string>
+    <string name="chat_with_placeholder">bob@example.com</string>
+    <string name="open">Open</string>
+    <string name="error_address">Enter an address like bob@example.com</string>
+    <string name="chats_empty">No messages yet. Open a contact, or type an address above.</string>
+    <string name="typing">typing…</string>
+    <string name="you_prefix">You: %1$s</string>
+    <string name="failed_suffix">(failed)</string>
+    <string name="yesterday">Yesterday</string>
+    <string name="today">Today</string>
+
+    <!-- Chat -->
+    <string name="no_archive">No server archive: only messages from this run and offline messages show here.</string>
+    <string name="loading_history">Loading history…</string>
+    <string name="load_earlier">Load earlier messages</string>
+    <string name="start_of_conversation">Start of the conversation</string>
+    <string name="history_error">Couldn\'t load history: %1$s</string>
+    <string name="last_seen">last seen %1$s</string>
+    <string name="last_seen_just_now">just now</string>
+    <string name="last_seen_minutes">%1$d min ago</string>
+    <string name="last_seen_at">at %1$s</string>
+    <string name="message_placeholder">Message</string>
+    <string name="send">Send</string>
+    <string name="attach">Attach</string>
+    <string name="message_deleted">This message was deleted</string>
+    <string name="other_device">other device</string>
+    <string name="status_sending">Sending</string>
+    <string name="status_sent">Sent</string>
+    <string name="status_delivered">Delivered</string>
+    <string name="status_read">Read</string>
+    <string name="status_failed">failed</string>
+    <string name="photo_info">Photo · %1$s</string>
+    <string name="play_video">Play video</string>
+    <string name="location_label">Location: %1$s</string>
+    <string name="location_open_map">open the map</string>
+    <string name="custom_data_label">Custom data: %1$s</string>
+    <string name="custom_field">%1$s = %2$s</string>
+    <string name="photo_loading">Loading photo…</string>
+    <string name="photo_failed">Photo couldn\'t load</string>
+
+    <!-- Attach sheet -->
+    <string name="attach_photo">Photo</string>
+    <string name="attach_video">Video</string>
+    <string name="attach_location">Location</string>
+    <string name="attach_custom">Custom data</string>
+    <string name="send_photo">Send a photo</string>
+    <string name="send_video">Send a video</string>
+    <string name="share_location">Share a location</string>
+    <string name="send_custom">Send custom data</string>
+    <string name="field_link">Link</string>
+    <string name="field_seconds">Length in seconds</string>
+    <string name="field_latitude">Latitude</string>
+    <string name="field_longitude">Longitude</string>
+    <string name="field_place">Place name</string>
+    <string name="field_type">Type</string>
+    <string name="field_fields">Fields, one key=value per line</string>
+    <string name="field_caption">Caption (optional)</string>
+    <string name="error_link">Enter a link starting with https://</string>
+    <string name="error_coordinates">Latitude goes from -90 to 90 and longitude from -180 to 180.</string>
+    <string name="reading">Reading…</string>
+
+    <!-- Message actions -->
+    <string name="copy_text">Copy text</string>
+    <string name="delete_title">Delete message?</string>
+    <string name="remove_placeholder_title">Remove the placeholder?</string>
+    <string name="delete_explain_ours">For everyone removes it from their chat too, if their app supports it. For me removes it only on this device.</string>
+    <string name="delete_explain_device">It is removed on this device only.</string>
+    <string name="delete_for_everyone">For everyone</string>
+    <string name="delete_for_me">For me</string>
+    <string name="remove">Remove</string>
+
+    <!-- Contacts -->
+    <string name="requests">Requests</string>
+    <string name="request_text">%1$s wants to see when you\'re online.</string>
+    <string name="approve">Approve</string>
+    <string name="deny">Deny</string>
+    <string name="contacts_count">%1$d contacts · long-press to remove</string>
+    <string name="add_contact">Add contact</string>
+    <string name="contacts_empty">Your contact list is empty.</string>
+    <string name="section_online">Online</string>
+    <string name="section_offline">Offline</string>
+    <string name="sub_request_sent">request sent</string>
+    <string name="sub_none">not sharing presence</string>
+    <string name="sub_from">they can\'t share theirs yet</string>
+    <string name="sub_to">you don\'t share yours</string>
+    <string name="remove_contact_title">Remove %1$s?</string>
+    <string name="remove_contact_text">They are removed from your contacts and presence sharing ends both ways.</string>
+    <string name="field_address">Address</string>
+    <string name="field_name_optional">Name (optional)</string>
+    <string name="hint_add_contact">Also asks them to share their presence with you.</string>
+    <string name="add">Add</string>
+
+    <!-- Me -->
+    <string name="my_profile">My profile</string>
+    <string name="choose_picture">Choose picture</string>
+    <string name="picture_info">JPEG, %1$d KB, made 192×192 to fit in one message</string>
+    <string name="no_picture">No picture</string>
+    <string name="full_name">Full name</string>
+    <string name="nickname">Nickname</string>
+    <string name="about">About</string>
+    <string name="save_profile">Save profile</string>
+    <string name="profile_saved">Saved. Contacts see your name and picture.</string>
+    <string name="failed_reason">Failed: %1$s</string>
+    <string name="profile_hint">Contacts see this (vCard).</string>
+    <string name="profile_offline">Connect to edit your profile.</string>
+    <string name="my_presence">My presence</string>
+    <string name="status_message">Status message (optional)</string>
+    <string name="update_presence">Update presence</string>
+    <string name="presence_updated">Updated. Contacts see this on every connection.</string>
+    <string name="server_supports">What this server supports</string>
+    <string name="feature_sm">Stream Management (XEP-0198)</string>
+    <string name="feature_sm_note">session resumed</string>
+    <string name="feature_carbons">Message Carbons (XEP-0280)</string>
+    <string name="feature_carbons_note">messages from your other devices</string>
+    <string name="feature_mam">Message Archive (XEP-0313)</string>
+    <string name="feature_mam_note">history in chats</string>
+    <string name="feature_push">Push (XEP-0357)</string>
+    <string name="feature_push_note">turn it on below</string>
+    <string name="supported">Supported</string>
+    <string name="not_supported">Not supported</string>
+    <string name="features_hint">Tether checks capabilities on each new login and only turns on what the server offers.</string>
+    <string name="push_title">Push notifications</string>
+    <string name="push_no_firebase">This build has no Firebase setup. Add your project\'s google-services.json as app/google-services.json and rebuild (see the README), then run a push server such as tether-push.</string>
+    <string name="push_intro">Messages that arrive while the app is closed come as notifications. The push server (tether-push or another p2-compatible one) forwards them from your XMPP server to Firebase.</string>
+    <string name="push_server">Push server address</string>
+    <string name="push_server_placeholder">myapp-push@sure.im/push</string>
+    <string name="enable_push">Enable push</string>
+    <string name="turn_off">Turn off</string>
+    <string name="push_notifications_off">Notifications are off for this app, so pushes connect but show nothing.</string>
+    <string name="push_state">State: %1$s</string>
+    <string name="push_state_off">not registered</string>
+    <string name="push_state_unsupported">the server has no push support</string>
+    <string name="push_state_pending">registering with %1$s</string>
+    <string name="push_state_on">on (%1$s)</string>
+    <string name="push_state_failed">refused: %1$s</string>
+    <string name="unknown_error">unknown error</string>
+    <string name="push_by_hand">Register a push node by hand</string>
+    <string name="push_by_hand_hint">For servers whose push service needs no app server, or to test one. MongooseIM: service pubsub.&lt;domain&gt;, any node name, options device_id=&lt;token&gt; and service=fcm, with \"create node\" on.</string>
+    <string name="push_service_jid">Push service JID</string>
+    <string name="push_node">Node</string>
+    <string name="push_options">Publish options (key=value per line)</string>
+    <string name="create_node">Create node first</string>
+    <string name="create_node_hint">MongooseIM needs this.</string>
+    <string name="register">Register</string>
+    <string name="unregister">Unregister</string>
+    <string name="session">Session</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="sign_out">Sign out</string>
+    <string name="session_hint">Disconnect keeps the saved login. Sign out deletes it from this device.</string>
+
+    <!-- Log -->
+    <string name="log_stanzas">Stanzas</string>
+    <string name="log_following">Following</string>
+    <string name="log_follow">Follow</string>
+    <string name="log_clear">Clear</string>
+    <string name="log_portal">Portal %1$s: %2$d uploaded, %3$d queued, %4$d dropped</string>
+    <string name="log_portal_error">" · last error: %1$s"</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel">Messages</string>
+    <string name="new_message">New message</string>
 </resources>
