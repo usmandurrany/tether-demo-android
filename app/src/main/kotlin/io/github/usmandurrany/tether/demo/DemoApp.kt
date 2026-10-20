@@ -133,11 +133,11 @@ class DemoApp : Application() {
     }
 
     /** An FCM message arrived (maybe in a process it just started): fetch what is waiting. */
-    fun pushReceived() {
+    fun pushReceived(receivedAt: Long) {
         scope.launch {
             // A process the push started is still restoring the session (auto-connect).
             val current = withTimeoutOrNull(15_000) { session.filterNotNull().first() } ?: return@launch
-            current.wakeForPush()
+            current.wakeForPush(receivedAt)
         }
     }
 
