@@ -1,5 +1,7 @@
 package io.github.usmandurrany.tether.demo.ui
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +39,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.usmandurrany.tether.core.ConnectionState
+import io.github.usmandurrany.tether.demo.DemoApp
+import io.github.usmandurrany.tether.demo.DemoPush
 import io.github.usmandurrany.tether.demo.TetherSession
 import io.github.usmandurrany.tether.im.PushState
 import io.github.usmandurrany.tether.im.PushTarget
@@ -78,6 +82,14 @@ fun MeTab(session: TetherSession, onSignOut: (forget: Boolean) -> Unit) {
     var profileNote by remember { mutableStateOf<String?>(null) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch { picture = Avatars.fromUri(context, uri) ?: picture }
+    }
+
+    val app = context.applicationContext as DemoApp
+    val firebase = remember { DemoPush.available(context) }
+    var pushServer by remember { mutableStateOf(app.pushSettings.server) }
+    var pushNote by remember { mutableStateOf<String?>(null) }
+    val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) pushNote = "Notifications are off for this app, so pushes connect but show nothing."
     }
 
     var service by remember { mutableStateOf("") }
@@ -158,15 +170,58 @@ fun MeTab(session: TetherSession, onSignOut: (forget: Boolean) -> Unit) {
         Feature(
             "Push (XEP-0357)",
             push !is PushState.Unsupported,
-            if (push is PushState.Unsupported) null else "register below",
+            if (push is PushState.Unsupported) null else "turn it on below",
         )
         Hint("Tether checks capabilities on each new login and only turns on what the server offers.")
 
         SectionTitle("Push notifications")
+        if (!firebase) {
+            Hint(
+                "This build has no Firebase setup. Add your project's google-services.json as app/google-services.json " +
+                    "and rebuild (see the README), then run a push server such as tether-push.",
+            )
+        } else {
+            Hint(
+                "Messages that arrive while the app is closed come as notifications. The push server (tether-push or " +
+                    "another p2-compatible one) forwards them from your XMPP server to Firebase.",
+            )
+            OutlinedTextField(
+                pushServer,
+                { pushServer = it },
+                label = { Text("Push server address") },
+                placeholder = { Text("myapp-push@sure.im/push") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    enabled = pushServer.isNotBlank() && online,
+                    onClick = {
+                        if (!DemoPush.canNotify(context) && Build.VERSION.SDK_INT >= 33) {
+                            askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        app.pushSettings.server = pushServer
+                        app.pushSettings.enabled = true
+                        scope.launch {
+                            pushNote = runCatching { app.enablePush(session) }
+                                .fold({ null }, { "Failed: ${it.message}" })
+                        }
+                    },
+                ) { Text("Enable push") }
+                OutlinedButton(onClick = {
+                    app.pushSettings.enabled = false
+                    pushNote = null
+                    scope.launch { session.unregisterPush() }
+                }) { Text("Turn off") }
+            }
+            pushNote?.let { Hint(it) }
+        }
+        Hint("State: ${push.describe()}")
+
+        SectionTitle("Register a push node by hand")
         Hint(
-            "Register this device with the server's push service. In a real app the token comes from FCM; " +
-                "then call client.wake() when a push arrives. MongooseIM: service pubsub.<domain>, any node name, " +
-                "options device_id=<token> and service=fcm, with \"create node\" on.",
+            "For servers whose push service needs no app server, or to test one. MongooseIM: service pubsub.<domain>, " +
+                "any node name, options device_id=<token> and service=fcm, with \"create node\" on.",
         )
         OutlinedTextField(service, { service = it }, label = { Text("Push service JID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(node, { node = it }, label = { Text("Node") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -192,7 +247,6 @@ fun MeTab(session: TetherSession, onSignOut: (forget: Boolean) -> Unit) {
             ) { Text("Register") }
             OutlinedButton(onClick = { scope.launch { session.unregisterPush() } }) { Text("Unregister") }
         }
-        Hint("State: ${push.describe()}")
 
         SectionTitle("Session")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -219,6 +273,6 @@ private fun PushState.describe(): String = when (this) {
     PushState.Off -> "not registered"
     PushState.Unsupported -> "the server has no push support"
     is PushState.Pending -> "registering with ${target.service}"
-    is PushState.On -> "on (${target.service}, node ${target.node})"
+    is PushState.On -> "on (${target.service})"
     is PushState.Failed -> "refused: ${condition ?: "unknown error"}"
 }

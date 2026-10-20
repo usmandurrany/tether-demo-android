@@ -6,6 +6,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Push notifications need your own Firebase project. Put its google-services.json
+// in this folder (git ignores it) and Firebase is set up; without it the app
+// builds and runs as before, with push off.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "io.github.usmandurrany.tether.demo"
     compileSdk = 35
@@ -59,6 +66,8 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.process)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test.junit4)
