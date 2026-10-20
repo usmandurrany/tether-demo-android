@@ -28,6 +28,7 @@ import io.github.usmandurrany.tether.im.ChatFeatures
 import io.github.usmandurrany.tether.im.InstantMessaging
 import io.github.usmandurrany.tether.im.MessageData
 import io.github.usmandurrany.tether.im.MessageStore
+import io.github.usmandurrany.tether.im.PushAppServer
 import io.github.usmandurrany.tether.im.PushTarget
 import io.github.usmandurrany.tether.im.SubscriptionEvent
 import io.github.usmandurrany.tether.im.TetherChat
@@ -190,6 +191,25 @@ class TetherSession private constructor(
     // --- Push (XEP-0357) -------------------------------------------------------------
 
     suspend fun registerPush(target: PushTarget) = chat.registerPush(target)
+
+    /**
+     * Gets a node for this device from a push app server that speaks p2's
+     * registration command, such as tether-push, and turns push on with it.
+     */
+    suspend fun registerPush(server: String, fcmToken: String, installId: String): PushTarget {
+        val target = chat.registerPush(PushAppServer.p2(server, fcmToken, installId))
+        debug.log(LogLevel.INFO, "app", "Push registered with ${target.service}")
+        return target
+    }
+
+    /** Call when an FCM message arrives: connects, also in the background, so waiting messages come in. */
+    suspend fun wakeForPush() {
+        debug.log(LogLevel.INFO, "app", "Push received; connecting to fetch messages")
+        chat.wakeForPush()
+    }
+
+    /** Shows a notification for each message that arrives while the app is in the background. */
+    private val notifier = MessageNotifier(app, this, scope)
 
     suspend fun unregisterPush() = chat.unregisterPush()
 

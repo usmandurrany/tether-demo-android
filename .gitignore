@@ -8,3 +8,6 @@ local.properties
 captures/
 *.apk
 *.aab
+
+# Your Firebase project config (never commit)
+google-services.json

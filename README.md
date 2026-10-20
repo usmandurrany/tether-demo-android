@@ -13,7 +13,7 @@ for developers to read and copy from. It connects to any standards-compliant XMP
 | Chat, + menu | Photos, videos, locations and any custom type, sent as their own tags next to the caption and drawn on the other side | `MessageData`, `send(to, text, data)`, `message.data("photo")` |
 | Contacts | Roster with presence, add/remove, approve/deny subscription requests, or accept them automatically | `Roster`, `Presences`, `ChatFeatures(autoAcceptContacts)` |
 | Profiles | Your name, nickname, "about" and picture on the Me tab; contacts' pictures and names in the lists and the chat header | `TetherChat.myProfile`, `updateMyProfile`, `Contact.avatar`, `ChatFeatures(profiles)` |
-| Me | Own presence and status, invisible mode, server capabilities, push registration, disconnect / sign out | `Presences.set/hide`, `Carbons`, `Push`, `CredentialVault` |
+| Me | Own presence and status, invisible mode, server capabilities, push notifications, disconnect / sign out | `Presences.set/hide`, `Carbons`, `registerPush`, `wakeForPush`, `CredentialVault` |
 | Log | Every stanza in and out (credentials always redacted), connection events, log portal upload stats | `TetherDebug`, `MemorySink`, `RemoteLogSink` |
 
 All SDK calls are in one file, [`TetherSession.kt`](app/src/main/kotlin/io/github/usmandurrany/tether/demo/TetherSession.kt).
@@ -95,27 +95,37 @@ Monitoring plugin; without it, chats show messages from this run plus offline me
 
 ## Push notifications
 
-The Me tab registers any push target by hand (XEP-0357), so you can try push without
-setting up Firebase. In your app, the token comes from FCM:
+Messages that arrive while the app is closed show up as notifications. This takes three
+pieces, and only the last is in this repo:
+
+1. **A Firebase project.** In the [Firebase console](https://console.firebase.google.com),
+   add an Android app with the package `io.github.usmandurrany.tether.demo`, download its
+   `google-services.json` and put it at `app/google-services.json`. Git ignores that file.
+   Without it the app builds and runs as before, with push off.
+2. **A push server** holding that project's credentials:
+   [tether-push](https://github.com/usmandurrany/tether-push), deployed to Cloud Run in the
+   same Firebase project or anywhere else. It logs in as its own XMPP account, for example
+   `myapp-push@sure.im`, and its address is that account plus `/push`.
+3. **The app.** On the Me tab, enter the push server's address and press **Enable push**. The
+   app asks for permission to notify (Android 13+), registers its FCM token with the push
+   server, and then registers with your XMPP server again on every login. Keep the background
+   mode on **Disconnect** (Settings), so the server sees you offline and pushes.
+
+When a push arrives, [`DemoPushService`](app/src/main/kotlin/io/github/usmandurrany/tether/demo/Push.kt)
+calls `chat.wakeForPush()`, also when the push started the app. The SDK connects, the waiting
+messages arrive, and `MessageNotifier` shows one notification per chat. The connection closes
+again 30 s later if the app is still in the background. The SDK calls are in
+[`TetherSession.kt`](app/src/main/kotlin/io/github/usmandurrany/tether/demo/TetherSession.kt):
 
 ```kotlin
-class PushService : FirebaseMessagingService() {
-    override fun onNewToken(token: String) {
-        appScope.launch {
-            chat.registerPush(PushTarget(
-                service = "pubsub.example.com",          // MongooseIM; other servers: your push app server's JID
-                node = deviceId,
-                publishOptions = mapOf("device_id" to token, "service" to "fcm"),
-                createNode = true,
-            ))
-        }
-    }
-
-    override fun onMessageReceived(message: RemoteMessage) {
-        chat.client.wake()   // check the connection now instead of waiting for the next retry
-    }
-}
+chat.registerPush(PushAppServer.p2("myapp-push@sure.im/push", fcmToken, installId))  // Enable push
+chat.wakeForPush()                                                                      // FCM message arrived
 ```
+
+Your XMPP server needs XEP-0357 (sure.im, Prosody, ejabberd and Openfire have it). For
+MongooseIM, whose own push service takes the token directly, **Register a push node by hand**
+on the Me tab takes any target: service `pubsub.<domain>`, any node name, options
+`device_id=<token>` and `service=fcm`, with "create node" on.
 
 ## Debug logs
 

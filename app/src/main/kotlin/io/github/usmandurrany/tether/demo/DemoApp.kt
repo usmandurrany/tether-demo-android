@@ -6,6 +6,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.usmandurrany.tether.android.TetherAndroid
 import io.github.usmandurrany.tether.core.ConnectResult
+import io.github.usmandurrany.tether.core.ConnectionState
 import io.github.usmandurrany.tether.core.KeyValueStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +14,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 sealed interface SignInResult {
     data object Connected : SignInResult
@@ -33,6 +38,10 @@ class DemoApp : Application() {
     lateinit var settingsStore: SettingsStore
         private set
 
+    /** Whether push is on and which app server it uses (Me tab). */
+    lateinit var pushSettings: PushSettings
+        private set
+
     /** Android Keystore-encrypted storage for the SDK's state and login keys. */
     val secureStore: KeyValueStore by lazy { TetherAndroid.secureStore(this) }
 
@@ -42,6 +51,16 @@ class DemoApp : Application() {
     override fun onCreate() {
         super.onCreate()
         settingsStore = SettingsStore(this)
+        pushSettings = PushSettings(this)
+
+        // Push on: (re)register on each signed-in session, so a new FCM token or a
+        // changed app server always reaches the server.
+        scope.launch {
+            session.filterNotNull().collectLatest { current ->
+                current.client.state.first { it is ConnectionState.Online }
+                if (pushSettings.enabled) runCatching { enablePush(current) }
+            }
+        }
 
         // Remote logs live in memory until uploaded: push them out when the app is backgrounded.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -101,6 +120,32 @@ class DemoApp : Application() {
                 SignInResult.Error("Cancelled")
             }
         }
+    }
+
+    /**
+     * Turns push on for [session] with the app server in [pushSettings]. Throws
+     * when Firebase is not set up, there is no server, or the server refuses.
+     */
+    suspend fun enablePush(session: TetherSession) {
+        check(DemoPush.available(this)) { "Firebase is not set up in this build (no google-services.json)" }
+        val server = pushSettings.server.ifBlank { error("Enter the push server's address") }
+        session.registerPush(server, DemoPush.token(), settingsStore.installId)
+    }
+
+    /** An FCM message arrived (maybe in a process it just started): fetch what is waiting. */
+    fun pushReceived() {
+        scope.launch {
+            // A process the push started is still restoring the session (auto-connect).
+            val current = withTimeoutOrNull(15_000) { session.filterNotNull().first() } ?: return@launch
+            current.wakeForPush()
+        }
+    }
+
+    /** FCM rotated the token: register the new one. */
+    fun pushTokenChanged(@Suppress("UNUSED_PARAMETER") token: String) {
+        val current = _session.value ?: return
+        if (!pushSettings.enabled) return
+        scope.launch { runCatching { enablePush(current) } }
     }
 
     /** The session of a sign-in still in progress, so the settings page can show its state. */
