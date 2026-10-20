@@ -1,6 +1,7 @@
 package io.github.usmandurrany.tether.demo
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import io.github.usmandurrany.tether.android.SqliteMessageStore
 import io.github.usmandurrany.tether.android.TetherAndroid
@@ -202,10 +203,16 @@ class TetherSession private constructor(
         return target
     }
 
-    /** Call when an FCM message arrives: connects, also in the background, so waiting messages come in. */
-    suspend fun wakeForPush() {
-        debug.log(LogLevel.INFO, "app", "Push received; connecting to fetch messages")
-        chat.wakeForPush()
+    /**
+     * Call when an FCM message arrives: connects, also in the background, so
+     * waiting messages come in. [receivedAt] is `SystemClock.elapsedRealtime()`
+     * when the push arrived, so the SDK closes again inside the short time
+     * Android lets a background app use the network after a push.
+     */
+    suspend fun wakeForPush(receivedAt: Long) {
+        val elapsed = SystemClock.elapsedRealtime() - receivedAt
+        debug.log(LogLevel.INFO, "app", "Push received ${elapsed} ms ago; connecting to fetch messages")
+        chat.wakeForPush(elapsedSincePushMillis = elapsed)
     }
 
     /** Shows a notification for each message that arrives while the app is in the background. */

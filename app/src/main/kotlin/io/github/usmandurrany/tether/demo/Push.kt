@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -75,7 +76,8 @@ class PushSettings(context: Context) {
 /** Receives FCM messages and token changes. Declared in the manifest. */
 class DemoPushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
-        (application as DemoApp).pushReceived()
+        // Android's network allowance for this push counts from now, not from when the SDK is called.
+        (application as DemoApp).pushReceived(SystemClock.elapsedRealtime())
     }
 
     override fun onNewToken(token: String) {
