@@ -42,25 +42,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.usmandurrany.tether.core.BareJid
-import io.github.usmandurrany.tether.demo.Delivery
+import io.github.usmandurrany.tether.im.Avatar
+import io.github.usmandurrany.tether.im.MessageStatus
 import io.github.usmandurrany.tether.demo.TetherSession
-import io.github.usmandurrany.tether.im.RosterItem
+import io.github.usmandurrany.tether.im.Contact
 import io.github.usmandurrany.tether.im.Subscription
 import kotlinx.coroutines.launch
 
 /** Conversations of this run, newest first, plus a field to start a new one. */
 @Composable
 fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
-    val threads by session.conversations.threads.collectAsStateWithLifecycle()
-    val unread by session.conversations.unread.collectAsStateWithLifecycle()
-    val roster by session.im.roster.items.collectAsStateWithLifecycle()
-    val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
+    // Newest first, with names, unread counts and typing, kept by the SDK.
+    val conversations by session.chat.conversations.collectAsStateWithLifecycle()
     var address by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-
-    val sorted = threads.entries
-        .filter { it.value.isNotEmpty() }
-        .sortedByDescending { it.value.last().timeMillis }
 
     LazyColumn(Modifier.fillMaxSize()) {
         item {
@@ -83,39 +78,42 @@ fun ChatsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
                 }) { Text("Open") }
             }
         }
-        if (sorted.isEmpty()) {
+        if (conversations.isEmpty()) {
             item { Empty("No messages yet. Open a contact, or type an address above.") }
         }
-        items(sorted, key = { it.key.toString() }) { (peer, messages) ->
-            val last = messages.last()
+        items(conversations, key = { it.peer.toString() }) { conversation ->
+            val last = conversation.lastMessage
             ListRow(
-                title = roster[peer]?.name ?: peer.toString(),
-                subtitle = buildString {
-                    if (last.outgoing) append("You: ")
-                    append(last.body)
-                    if (last.delivery == Delivery.FAILED) append("  (failed)")
+                title = conversation.name,
+                subtitle = when {
+                    conversation.typing -> "typing…"
+                    last == null -> ""
+                    else -> buildString {
+                        if (last.outgoing) append("You: ")
+                        append(last.body)
+                        if (last.status == MessageStatus.FAILED) append("  (failed)")
+                    }
                 },
-                dot = presenceColor(presences[peer].best()),
-                badge = unread[peer]?.takeIf { it > 0 },
-                onClick = { onOpenChat(peer) },
+                dot = if (conversation.online) Online else Offline,
+                avatar = conversation.avatar,
+                badge = conversation.unreadCount.takeIf { it > 0 },
+                onClick = { onOpenChat(conversation.peer) },
             )
         }
     }
 }
 
-/** The roster with presence, pending subscription requests, and add/remove. */
+/** The contact list with presence, pending subscription requests, and add/remove. */
 @Composable
 fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
-    val roster by session.im.roster.items.collectAsStateWithLifecycle()
-    val presences by session.im.presences.contacts.collectAsStateWithLifecycle()
+    // Name (ours for them, else their profile's), picture, presence and subscription, kept by the SDK.
+    val all by session.chat.contacts.collectAsStateWithLifecycle()
     val requests by session.subscriptionRequests.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var adding by remember { mutableStateOf(false) }
-    var removing by remember { mutableStateOf<RosterItem?>(null) }
+    var removing by remember { mutableStateOf<Contact?>(null) }
 
-    val contacts = roster.values.sortedWith(
-        compareBy<RosterItem> { presences[it.jid] == null }.thenBy { (it.name ?: it.jid.toString()).lowercase() },
-    )
+    val contacts = all.sortedBy { !it.online } // the SDK sorts by name; online first keeps that order within each
 
     LazyColumn(Modifier.fillMaxSize()) {
         items(requests.toList(), key = { "request-$it" }) { jid ->
@@ -132,23 +130,23 @@ fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
         }
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Hint("${roster.size} contacts · long-press to remove", Modifier.weight(1f))
+                Hint("${all.size} contacts · long-press to remove", Modifier.weight(1f))
                 TextButton(onClick = { adding = true }) { Text("Add contact") }
             }
         }
         if (contacts.isEmpty()) item { Empty("Your contact list is empty.") }
-        items(contacts, key = { it.jid.toString() }) { item ->
-            val presence = presences[item.jid].best()
+        items(contacts, key = { it.jid.toString() }) { contact ->
             ListRow(
-                title = item.name ?: item.jid.toString(),
+                title = contact.name,
                 subtitle = buildString {
-                    if (item.name != null) append(item.jid).append(" · ")
-                    append(presenceText(presence))
-                    subscriptionNote(item)?.let { append(" · ").append(it) }
+                    append(contact.jid).append(" · ")
+                    append(presenceText(contact.show, contact.status, contact.online))
+                    subscriptionNote(contact)?.let { append(" · ").append(it) }
                 },
-                dot = presenceColor(presence),
-                onClick = { onOpenChat(item.jid) },
-                onLongClick = { removing = item },
+                dot = presenceColor(contact.show, contact.online),
+                avatar = contact.avatar,
+                onClick = { onOpenChat(contact.jid) },
+                onLongClick = { removing = contact },
             )
         }
     }
@@ -161,7 +159,7 @@ fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
     removing?.let { item ->
         AlertDialog(
             onDismissRequest = { removing = null },
-            title = { Text("Remove ${item.name ?: item.jid}?") },
+            title = { Text("Remove ${item.name}?") },
             text = { Text("They are removed from your contacts and presence sharing ends both ways.") },
             confirmButton = {
                 TextButton(onClick = {
@@ -174,8 +172,8 @@ fun ContactsTab(session: TetherSession, onOpenChat: (BareJid) -> Unit) {
     }
 }
 
-private fun subscriptionNote(item: RosterItem): String? = when {
-    item.pendingOut -> "request sent"
+private fun subscriptionNote(item: Contact): String? = when {
+    item.pending -> "request sent"
     item.subscription == Subscription.NONE -> "not sharing presence"
     item.subscription == Subscription.FROM -> "they can't share theirs yet"
     item.subscription == Subscription.TO -> "you don't share yours"
@@ -218,6 +216,7 @@ fun ListRow(
     title: String,
     subtitle: String,
     dot: androidx.compose.ui.graphics.Color,
+    avatar: Avatar? = null,
     badge: Int? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
@@ -229,7 +228,7 @@ fun ListRow(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Dot(dot)
+        AvatarImage(avatar, title, dot = dot)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(title, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -243,7 +242,7 @@ fun ListRow(
         }
         if (badge != null) Badge { Text(badge.toString()) }
     }
-    HorizontalDivider(Modifier.padding(start = 38.dp))
+    HorizontalDivider(Modifier.padding(start = 68.dp))
 }
 
 @Composable

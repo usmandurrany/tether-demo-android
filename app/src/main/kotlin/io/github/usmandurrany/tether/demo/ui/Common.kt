@@ -58,6 +58,12 @@ fun presenceColor(presence: ContactPresence?): Color = when (presence?.show) {
     Show.DND -> Busy
 }
 
+fun presenceColor(show: Show?, online: Boolean): Color =
+    if (!online) Offline else presenceColor(ContactPresence(null, show, null, 0))
+
+fun presenceText(show: Show?, status: String?, online: Boolean): String =
+    if (!online) "Offline" else presenceText(ContactPresence(null, show, status, 0))
+
 fun presenceText(presence: ContactPresence?): String {
     if (presence == null) return "Offline"
     val show = when (presence.show) {

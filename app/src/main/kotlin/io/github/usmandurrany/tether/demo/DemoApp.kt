@@ -89,7 +89,7 @@ class DemoApp : Application() {
             }
             is ConnectResult.Failed -> {
                 session.signOut(forget = false)
-                val pin = TetherSession.refusedCertificate(result.error)
+                val pin = result.untrustedCertificate
                 if (pin != null) {
                     SignInResult.UntrustedCertificate(pin, TetherSession.describe(result.error))
                 } else {

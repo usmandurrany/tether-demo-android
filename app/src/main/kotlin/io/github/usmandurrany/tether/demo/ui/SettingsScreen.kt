@@ -202,6 +202,26 @@ fun SettingsScreen(app: DemoApp, canGoBack: Boolean, onBack: () -> Unit, onConne
             }
             SwitchRow("Connect on app start", settings.autoConnect, { settings = settings.copy(autoConnect = it) }, hint = "Uses the saved login.")
 
+            SectionTitle("Chats")
+            SwitchRow(
+                "Accept contact requests automatically",
+                settings.autoAcceptContacts,
+                { settings = settings.copy(autoAcceptContacts = it) },
+                hint = "Anyone who adds you sees when you're online and is added back. Off by default.",
+            )
+            SwitchRow(
+                "Keep chats on this device",
+                settings.keepMessages,
+                { settings = settings.copy(keepMessages = it) },
+                hint = "Ticks, read state, deletions and photos survive a restart. Off keeps them in memory only.",
+            )
+            SwitchRow(
+                "Profiles and pictures",
+                settings.profiles,
+                { settings = settings.copy(profiles = it) },
+                hint = "Your name and picture for contacts, and theirs in your lists (vCard). On by default.",
+            )
+
             SectionTitle("Debug log portal (optional)")
             Hint("Uploads redacted stanza logs to a tether-debug portal while testing. Leave empty to keep logs on the device.")
             OutlinedTextField(

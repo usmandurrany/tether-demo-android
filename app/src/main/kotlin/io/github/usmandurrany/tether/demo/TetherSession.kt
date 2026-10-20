@@ -2,6 +2,7 @@ package io.github.usmandurrany.tether.demo
 
 import android.content.Context
 import android.util.Log
+import io.github.usmandurrany.tether.android.SqliteMessageStore
 import io.github.usmandurrany.tether.android.TetherAndroid
 import io.github.usmandurrany.tether.core.BareJid
 import io.github.usmandurrany.tether.core.ClientPolicy
@@ -23,34 +24,36 @@ import io.github.usmandurrany.tether.debug.RemoteLogConfig
 import io.github.usmandurrany.tether.debug.RemoteLogSink
 import io.github.usmandurrany.tether.debug.TetherDebug
 import io.github.usmandurrany.tether.debug.http
-import io.github.usmandurrany.tether.im.ChatState
+import io.github.usmandurrany.tether.im.ChatFeatures
 import io.github.usmandurrany.tether.im.InstantMessaging
-import io.github.usmandurrany.tether.im.OwnPresence
+import io.github.usmandurrany.tether.im.MessageData
+import io.github.usmandurrany.tether.im.MessageStore
 import io.github.usmandurrany.tether.im.PushTarget
-import io.github.usmandurrany.tether.im.StoredRoster
 import io.github.usmandurrany.tether.im.SubscriptionEvent
+import io.github.usmandurrany.tether.im.TetherChat
 import io.github.usmandurrany.tether.sasl.SaslConfig
 import io.github.usmandurrany.tether.transport.TlsConfig
-import io.github.usmandurrany.tether.transport.TlsVerificationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
  * One signed-in account: everything the demo does with the SDK is in this file.
  *
- * The order matters and is the same in any app:
+ * An app without the demo's debug tools and settings screen only needs
+ * `TetherAndroid.chat(context, jid, password)`. The demo builds the same thing
+ * by hand so it can add traffic logging and apply its settings:
  * 1. Build an [XmppConfig] from the settings (password the first time, saved SCRAM keys after).
- * 2. Create the [XmppClient], install the features ([InstantMessaging]) and bind it to
- *    the Android lifecycle and network.
- * 3. Start collecting events (messages, subscription requests) before connecting.
- * 4. [connect]. From then on the SDK reconnects and resumes on its own until [signOut].
+ * 2. Create the [XmppClient], wrap it in a [TetherChat] (every chat feature on) and bind it
+ *    to the Android lifecycle and network.
+ * 3. [connect]. From then on the SDK reconnects and resumes on its own until [signOut].
+ *
+ * The screens read [chat]'s flows (chat list, messages with ticks, typing, contacts) and
+ * call `send`, `typing`, `openChat` and `closeChat`; read markers, history and
+ * de-duplication are the SDK's job.
  */
 class TetherSession private constructor(
     context: Context,
@@ -106,8 +109,23 @@ class TetherSession private constructor(
         credentials = CredentialVault(store),
     )
 
-    /** Roster, presence, messages, carbons, history (MAM) and push, installed on [client]. */
-    val im = InstantMessaging(client, rosterStore = StoredRoster(store, account), presence = OwnPresence())
+    /** Kept in the SDK's SQLite database, one per account, unless the settings say memory only. */
+    private val messageStore: MessageStore? = if (settings.keepMessages) SqliteMessageStore(app, account) else null
+
+    /**
+     * Messages, read markers, typing, contacts, presence, carbons, history, push,
+     * last seen, delete for everyone and profiles, on [client]. Auto-accept is the one
+     * feature that is off unless the settings turn it on.
+     */
+    val chat = TetherChat(
+        client,
+        ChatFeatures(autoAcceptContacts = settings.autoAcceptContacts, profiles = settings.profiles),
+        store = store,
+        messageStore = messageStore,
+    )
+
+    /** The protocol-level features under [chat], for the Me tab's details. */
+    val im: InstantMessaging get() = chat.im
 
     /**
      * Follows the app lifecycle (closing the connection five seconds after the app is
@@ -116,20 +134,18 @@ class TetherSession private constructor(
      */
     private val binding: AutoCloseable = TetherAndroid.bind(app, client, scope)
 
-    val conversations = Conversations()
-
-    private val _requests = MutableStateFlow<Set<BareJid>>(emptySet())
-
     /** Contacts asking to see our presence, waiting for approve or deny. */
-    val subscriptionRequests: StateFlow<Set<BareJid>> = _requests.asStateFlow()
+    val subscriptionRequests: StateFlow<Set<BareJid>> get() = chat.contactRequests
 
     init {
-        // Collect before connecting: events with no collector are dropped.
-        scope.launch { im.messaging.events.collect { conversations.onEvent(it) } }
         scope.launch {
             im.presences.subscriptions.collect { event ->
                 when (event) {
-                    is SubscriptionEvent.Requested -> _requests.update { it + event.from }
+                    is SubscriptionEvent.Requested -> debug.log(
+                        LogLevel.INFO,
+                        "app",
+                        "${event.from} asked to see our presence" + if (settings.autoAcceptContacts) " (accepted automatically)" else "",
+                    )
                     is SubscriptionEvent.Approved -> debug.log(LogLevel.INFO, "app", "${event.from} approved our request")
                     is SubscriptionEvent.Revoked -> debug.log(LogLevel.INFO, "app", "${event.from} denied or revoked our subscription")
                     is SubscriptionEvent.Unsubscribed -> debug.log(LogLevel.INFO, "app", "${event.from} stopped seeing our presence")
@@ -141,54 +157,41 @@ class TetherSession private constructor(
 
     suspend fun connect(): ConnectResult {
         debug.log(LogLevel.INFO, "app", "Connecting as $account")
-        return client.connect()
+        return chat.connect()
     }
 
     // --- Messaging -------------------------------------------------------------------
 
     /** Works offline too: the SDK keeps the message in its outbox and sends it on the next connection. */
-    suspend fun send(to: BareJid, body: String) {
-        val id = im.messaging.send(to, body)
-        conversations.addOutgoing(to, id, body)
+    fun send(to: BareJid, body: String) {
+        chat.send(to, body)
     }
 
-    suspend fun sendChatState(to: BareJid, state: ChatState) {
-        runCatching { im.messaging.sendChatState(to, state) }
-    }
-
-    /** For callers that are going away, such as a closing chat screen. */
-    fun sendChatStateLater(to: BareJid, state: ChatState) {
-        scope.launch { sendChatState(to, state) }
+    /**
+     * Sends custom data (a photo, video, location or any other type) with a
+     * caption. Without one, the body is a link other XMPP apps can open.
+     */
+    fun send(to: BareJid, caption: String, data: MessageData) {
+        chat.send(to, caption.ifBlank { Attachments.fallbackText(data) }, data)
     }
 
     // --- Contacts and presence -------------------------------------------------------
 
     /** Adds the contact to the roster and asks to see their presence. */
-    suspend fun addContact(jid: BareJid, name: String?) {
-        im.roster.set(jid, name = name?.ifBlank { null })
-        im.presences.request(jid)
-    }
+    suspend fun addContact(jid: BareJid, name: String?) = chat.addContact(jid, name)
 
-    suspend fun removeContact(jid: BareJid) {
-        im.roster.remove(jid)
-    }
+    suspend fun removeContact(jid: BareJid) = chat.removeContact(jid)
 
+    /** Approving also asks for their presence, so both sides see each other. */
     suspend fun answerRequest(jid: BareJid, approve: Boolean) {
-        if (approve) {
-            im.presences.approve(jid)
-            // Also ask for theirs, so both sides see each other.
-            if (im.roster.items.value[jid] == null) im.presences.request(jid)
-        } else {
-            im.presences.deny(jid)
-        }
-        _requests.update { it - jid }
+        if (approve) chat.approve(jid) else chat.deny(jid)
     }
 
     // --- Push (XEP-0357) -------------------------------------------------------------
 
-    suspend fun registerPush(target: PushTarget) = im.push.register(target)
+    suspend fun registerPush(target: PushTarget) = chat.registerPush(target)
 
-    suspend fun unregisterPush() = im.push.unregister()
+    suspend fun unregisterPush() = chat.unregisterPush()
 
     // --- Ending ----------------------------------------------------------------------
 
@@ -198,13 +201,17 @@ class TetherSession private constructor(
      */
     suspend fun signOut(forget: Boolean) {
         debug.log(LogLevel.INFO, "app", if (forget) "Signing out" else "Disconnecting")
-        if (forget) runCatching { im.push.unregister() }
+        if (forget) runCatching { chat.unregisterPush() }
         runCatching { client.disconnect() }
         remoteLogs?.flush()
         binding.close()
-        client.close()
+        chat.close()
         remoteLogs?.close()
-        if (forget) CredentialVault(store).clear(account)
+        if (forget) {
+            CredentialVault(store).clear(account)
+            // Signing out also forgets this account's chats on the device.
+            runCatching { (messageStore ?: SqliteMessageStore(app, account)).clear() }
+        }
         scope.cancel()
     }
 
@@ -250,17 +257,6 @@ class TetherSession private constructor(
             val account = runCatching { BareJid.parse(jid.trim()) }.getOrNull() ?: return false
             if (account.local == null) return false
             return CredentialVault(store).loadKeys(account).isNotEmpty()
-        }
-
-        /** The fingerprint to offer for pinning when the server's certificate was refused. */
-        fun refusedCertificate(error: Throwable): String? {
-            if (error !is XmppNegotiationException || error.failure != NegotiationFailure.TLS_VERIFICATION) return null
-            var cause: Throwable? = error
-            while (cause != null) {
-                if (cause is TlsVerificationException) return cause.peerCertificateSha256
-                cause = cause.cause
-            }
-            return null
         }
 
         /** A short, human message for a connection error. */

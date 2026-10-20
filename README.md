@@ -8,9 +8,11 @@ for developers to read and copy from. It connects to any standards-compliant XMP
 | --- | --- | --- |
 | Connection settings | Address, password, resource, host/port or DNS SRV, direct TLS, certificate pinning, PLAIN / SCRAM-SHA-1, background mode, log portal | `XmppConfig`, `TlsConfig`, `SaslConfig`, `ReconnectPolicy` |
 | Top bar | Live connection state, retry after a fatal error | `XmppClient.state`, `connect()` |
-| Chats | Conversations, unread counts, start a chat with any address | `Messaging.events` |
-| Chat | Delivery ticks (✓ server, ✓✓ device), typing indicator, offline sending, archive paging | `Messaging.send`, `sendChatState`, `History.fetch` |
-| Contacts | Roster with presence, add/remove, approve/deny subscription requests | `Roster`, `Presences` |
+| Chats | Conversations, unread counts, typing, start a chat with any address | `TetherChat.conversations` |
+| Chat | Ticks (✓ server, ✓✓ device, ✓✓ read), typing indicator, read markers sent while the chat is open, offline sending, archive paging, last seen, delete for everyone or for me (long-press) | `TetherChat.messages`, `send`, `typing`, `openChat`, `loadOlder`, `deleteForEveryone`, `deleteForMe` |
+| Chat, + menu | Photos, videos, locations and any custom type, sent as their own tags next to the caption and drawn on the other side | `MessageData`, `send(to, text, data)`, `message.data("photo")` |
+| Contacts | Roster with presence, add/remove, approve/deny subscription requests, or accept them automatically | `Roster`, `Presences`, `ChatFeatures(autoAcceptContacts)` |
+| Profiles | Your name, nickname, "about" and picture on the Me tab; contacts' pictures and names in the lists and the chat header | `TetherChat.myProfile`, `updateMyProfile`, `Contact.avatar`, `ChatFeatures(profiles)` |
 | Me | Own presence and status, invisible mode, server capabilities, push registration, disconnect / sign out | `Presences.set/hide`, `Carbons`, `Push`, `CredentialVault` |
 | Log | Every stanza in and out (credentials always redacted), connection events, log portal upload stats | `TetherDebug`, `MemorySink`, `RemoteLogSink` |
 
@@ -53,6 +55,14 @@ To move to the latest SDK: `git submodule update --remote tether-xmpp`, then com
 pointer. Once the SDK is published to a Maven repository, delete the `includeBuild` lines
 and the submodule, and add that repository; the dependency lines stay the same.
 
+## Photos, videos, locations and custom data
+
+The **+** button in a chat sends a message with the SDK's custom data: the caption in the body, and the details as separate tags, such as a photo's link, size in bytes and dimensions. The other side reads them back with `message.data("photo")` and draws the photo, a video link or a map link. **Custom data** sends any type with any keys and values, and the receiver shows exactly what arrived. The types are in [`Attachments.kt`](app/src/main/kotlin/io/github/usmandurrany/tether/demo/Attachments.kt).
+
+The demo has no file hosting, so photos and videos are links to files already online; it reads their size from the web server before sending.
+
+Settings has three chat switches: **Accept contact requests automatically** (`ChatFeatures(autoAcceptContacts = true)`, off by default as in the SDK), **Keep chats on this device** (the SDK's `SqliteMessageStore`, on by default) and **Profiles and pictures** (`ChatFeatures(profiles)`, vCard, on by default). A picked picture is cropped square and made a 192×192 JPEG so it fits in one stanza. Signing out deletes the stored chats.
+
 ## Connecting
 
 Fill in the settings page and press **Connect**:
@@ -92,7 +102,7 @@ setting up Firebase. In your app, the token comes from FCM:
 class PushService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         appScope.launch {
-            im.push.register(PushTarget(
+            chat.registerPush(PushTarget(
                 service = "pubsub.example.com",          // MongooseIM; other servers: your push app server's JID
                 node = deviceId,
                 publishOptions = mapOf("device_id" to token, "service" to "fcm"),
@@ -102,7 +112,7 @@ class PushService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        client.wake()   // check the connection now instead of waiting for the next retry
+        chat.client.wake()   // check the connection now instead of waiting for the next retry
     }
 }
 ```
@@ -123,13 +133,12 @@ app/src/main/kotlin/io/github/usmandurrany/tether/demo/
   TetherSession.kt        everything that talks to the SDK
   DemoApp.kt              one session per process, sign-in and sign-out
   ConnectionSettings.kt   the settings model and where it is saved
-  Conversations.kt        in-memory message list fed by SDK events
   MainActivity.kt         screen switching and theme
   ui/                     Compose screens
 ```
 
-Messages are kept in memory for the demo; a real app would store them in a database
-and use `ChatMessage.serverId` to de-duplicate live and archived copies.
+Messages are kept in memory by the SDK for the demo, and refilled from the server archive
+after a restart; a real app can pass a `MessageStore` to keep them in a database.
 
 ## End-to-end test
 
