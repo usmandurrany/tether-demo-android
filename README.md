@@ -4,20 +4,28 @@ A small Android chat app that uses every feature of the [Tether XMPP SDK](https:
 for developers to read and copy from. It connects to any standards-compliant XMPP server
 (ejabberd, Prosody, Openfire, MongooseIM…) through a generic connection settings page.
 
+It is also meant as a small model of a Compose chat app: one ViewModel per screen,
+stateless screens, type-safe navigation, light and dark themes, and a two-pane layout on
+tablets and foldables (see [Architecture](#architecture)).
+
+| Chats | Chat | Contacts | Me | Settings |
+| --- | --- | --- | --- | --- |
+| ![Chats](docs/screenshots/04-chats.png) | ![Chat](docs/screenshots/05-chat.png) | ![Contacts](docs/screenshots/09-contacts.png) | ![Me](docs/screenshots/10-me.png) | ![Settings](docs/screenshots/01-sign-in.png) |
+
 | Screen | What it shows | SDK API |
 | --- | --- | --- |
 | Connection settings | Address, password, resource, host/port or DNS SRV, direct TLS, certificate pinning, PLAIN / SCRAM-SHA-1, background mode, log portal | `XmppConfig`, `TlsConfig`, `SaslConfig`, `ReconnectPolicy` |
-| Top bar | Live connection state, retry after a fatal error | `XmppClient.state`, `connect()` |
-| Chats | Conversations, unread counts, typing, start a chat with any address | `TetherChat.conversations` |
-| Chat | Ticks (✓ server, ✓✓ device, ✓✓ read), typing indicator, read markers sent while the chat is open, offline sending, archive paging, last seen, delete for everyone or for me (long-press) | `TetherChat.messages`, `send`, `typing`, `openChat`, `loadOlder`, `deleteForEveryone`, `deleteForMe` |
+| Top bar and tabs | Live connection state, retry after a fatal error; Chats, Contacts, Me and Log in a bottom bar with unread and request badges | `XmppClient.state`, `connect()` |
+| Chats | Conversations with last message, time and unread count, typing, start a chat with any address | `TetherChat.conversations` |
+| Chat | Ticks (clock sending, ✓ server, ✓✓ device, blue ✓✓ read), day separators, typing indicator, read markers sent while the chat is open, offline sending, archive paging, last seen, copy text and delete for everyone or for me (long-press) | `TetherChat.messages`, `send`, `typing`, `openChat`, `loadOlder`, `deleteForEveryone`, `deleteForMe` |
 | Chat, + menu | Photos, videos, locations and any custom type, sent as their own tags next to the caption and drawn on the other side | `MessageData`, `send(to, text, data)`, `message.data("photo")` |
-| Contacts | Roster with presence, add/remove, approve/deny subscription requests, or accept them automatically | `Roster`, `Presences`, `ChatFeatures(autoAcceptContacts)` |
+| Contacts | Roster with presence in Online and Offline sections, add/remove, approve/deny subscription requests, or accept them automatically | `Roster`, `Presences`, `ChatFeatures(autoAcceptContacts)` |
 | Profiles | Your name, nickname, "about" and picture on the Me tab; contacts' pictures and names in the lists and the chat header | `TetherChat.myProfile`, `updateMyProfile`, `Contact.avatar`, `ChatFeatures(profiles)` |
 | Me | Own presence and status, invisible mode, server capabilities, push notifications, disconnect / sign out | `Presences.set/hide`, `Carbons`, `registerPush`, `wakeForPush`, `CredentialVault` |
 | Log | Every stanza in and out (credentials always redacted), connection events, log portal upload stats | `TetherDebug`, `MemorySink`, `RemoteLogSink` |
 
 All SDK calls are in one file, [`TetherSession.kt`](app/src/main/kotlin/io/github/usmandurrany/tether/demo/TetherSession.kt).
-The rest is plain Jetpack Compose UI.
+The rest is plain Jetpack Compose UI with Material 3.
 
 ## Build and run
 
@@ -136,19 +144,55 @@ seconds and flushed when the app goes to the background. Debug builds allow plai
 for a portal on your LAN; release builds need `https://`. Turn on **Hide message text in
 logs** for testing rounds with people outside your team.
 
-## Project layout
+## Architecture
+
+The app follows the [Android architecture guide](https://developer.android.com/topic/architecture)
+without extra libraries: no DI framework, no image loader, no icon pack.
+
+- **One ViewModel per screen** turns the SDK's flows into one immutable `UiState`
+  (`StateFlow`, collected with `collectAsStateWithLifecycle`). Screens are stateless
+  composables, `XScreen(state, actions)`, with a small `XRoute` that wires the ViewModel in.
+  That is what the previews and screenshot tests render.
+- **Unidirectional data flow**: the SDK is the source of truth for chats, contacts and
+  presence; the UI only sends events back (send, delete, add contact).
+- **Saved state**: form drafts (settings, profile, presence, push) live in a
+  `SavedStateHandle`, so they survive rotation and process death. The password does not,
+  on purpose.
+- **Navigation Compose** with type-safe `@Serializable` routes. Navigation follows the
+  session: no session shows the sign-in page, signing in opens the tabs, and a message
+  notification opens its chat.
+- **Adaptive layout**: on windows 720 dp or wider, Chats shows the open chat beside the list.
+- **Theme**: an indigo Material 3 colour scheme for light and dark, plus chat colours
+  (bubbles, wallpaper, ticks, presence) in a `CompositionLocal`. The icons are drawn as
+  small `ImageVector`s in [`Icons.kt`](app/src/main/kotlin/io/github/usmandurrany/tether/demo/ui/theme/Icons.kt).
+- **Strings** are all in [`strings.xml`](app/src/main/res/values/strings.xml), ready to translate.
 
 ```
 app/src/main/kotlin/io/github/usmandurrany/tether/demo/
   TetherSession.kt        everything that talks to the SDK
   DemoApp.kt              one session per process, sign-in and sign-out
   ConnectionSettings.kt   the settings model and where it is saved
-  MainActivity.kt         screen switching and theme
-  ui/                     Compose screens
+  MainActivity.kt         the only activity: theme and navigation
+  ui/navigation/          routes and the NavHost
+  ui/signin/              connection settings page and its ViewModel
+  ui/home/                top bar, bottom tabs, two-pane layout
+  ui/chats/  ui/chat/     chat list, one chat, attach and message sheets
+  ui/contacts/  ui/me/  ui/log/
+  ui/components/          avatars, media, presence, times, form building blocks
+  ui/theme/               colours, chat colours, icons
 ```
 
-Messages are kept in memory by the SDK for the demo, and refilled from the server archive
-after a restart; a real app can pass a `MessageStore` to keep them in a database.
+With **Keep chats on this device** on, messages are kept in the SDK's SQLite store; with
+it off they are kept in memory and refilled from the server archive after a restart.
+
+## Screenshots
+
+[`ScreenshotTest`](app/src/test/kotlin/io/github/usmandurrany/tether/demo/ScreenshotTest.kt)
+renders every screen with sample data on the JVM (Robolectric and Roborazzi), with no device:
+
+```sh
+./gradlew testDebugUnitTest   # PNGs in app/build/screenshots
+```
 
 ## End-to-end test
 
@@ -176,7 +220,8 @@ does all of this against a running emulator, as CI does.
 [`build.yml`](.github/workflows/build.yml) runs on every push and pull request: it builds
 the debug APK with the SDK from the submodule, runs lint, then runs the end-to-end test on an
 emulator against ejabberd. The APK is uploaded as the `tether-demo-debug-apk` artifact, ready
-to install.
+to install. A third job renders the screenshots; run the workflow by hand
+(**Actions → Build → Run workflow**) to commit fresh ones to `docs/screenshots`.
 
 ## License
 

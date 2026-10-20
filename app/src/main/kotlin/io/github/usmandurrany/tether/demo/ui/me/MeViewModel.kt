@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -103,7 +102,7 @@ class MeViewModel(private val app: DemoApp, private val session: TetherSession, 
     init {
         // The form starts from our profile on the server, once it has been read.
         viewModelScope.launch {
-            chat.myProfile.distinctUntilChanged().collect { mine ->
+            chat.myProfile.collect { mine ->
                 editForm { it.copy(fullName = mine?.fullName.orEmpty(), nickname = mine?.nickname.orEmpty(), about = mine?.note.orEmpty()) }
                 local.update { it.copy(picture = mine?.avatar) }
             }
