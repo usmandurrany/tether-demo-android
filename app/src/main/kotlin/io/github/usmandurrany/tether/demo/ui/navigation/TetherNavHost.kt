@@ -1,10 +1,18 @@
 package io.github.usmandurrany.tether.demo.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -61,7 +69,14 @@ fun TetherNavHost(app: DemoApp, pendingChat: String?, onPendingChatHandled: () -
         }
     }
 
-    NavHost(navController = nav, startDestination = start) {
+    NavHost(
+        navController = nav,
+        startDestination = start,
+        enterTransition = { slideIn(SlideDirection.Start) },
+        exitTransition = { slideOut(SlideDirection.Start, parallax = true) },
+        popEnterTransition = { slideIn(SlideDirection.End, parallax = true) },
+        popExitTransition = { slideOut(SlideDirection.End) },
+    ) {
         composable<Destination.SignIn> {
             // Leaving is the session's job (above): a sign-in sets it.
             SettingsRoute(app, canGoBack = false, onBack = {}, onConnected = {})
@@ -94,6 +109,16 @@ fun TetherNavHost(app: DemoApp, pendingChat: String?, onPendingChatHandled: () -
         }
     }
 }
+
+// Chat-app style: the new screen slides in over the old one, which moves a
+// quarter of the way out behind it; back reverses both.
+private val slide = tween<IntOffset>(durationMillis = 300, easing = FastOutSlowInEasing)
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.slideIn(towards: SlideDirection, parallax: Boolean = false): EnterTransition =
+    slideIntoContainer(towards, slide, initialOffset = { if (parallax) it / 4 else it })
+
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.slideOut(towards: SlideDirection, parallax: Boolean = false): ExitTransition =
+    slideOutOfContainer(towards, slide, targetOffset = { if (parallax) it / 4 else it })
 
 private fun NavHostController.toSignIn() {
     navigate(Destination.SignIn) { popUpTo(graph.id) { inclusive = true } }
