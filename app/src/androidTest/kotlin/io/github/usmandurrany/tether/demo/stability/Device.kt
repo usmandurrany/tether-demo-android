@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
+private const val TAG = "Stability"
+
 /** Runs shell commands as the shell user, which may switch radios and send key events. */
 object Shell {
     fun run(command: String): String {
@@ -106,10 +108,6 @@ class DeviceNetwork(context: Context) {
         this.wifi(true)
         await(30_000) { it.wifi }
         return wifi && cell
-    }
-
-    private companion object {
-        const val TAG = "Stability"
     }
 }
 
