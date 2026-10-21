@@ -149,3 +149,29 @@ object AppSwitcher {
         return found
     }
 }
+
+/**
+ * Blocks the app's own traffic while the device's networks stay up, with the
+ * per-app firewall of Android 14 and newer. Needs no root: the shell user may
+ * use it. Affects every connection of the app, the test's included.
+ */
+object AppFirewall {
+    private val pkg get() = InstrumentationRegistry.getInstrumentation().targetContext.packageName
+
+    val supported: Boolean by lazy {
+        android.os.Build.VERSION.SDK_INT >= 34 &&
+            Shell.run("cmd connectivity help").contains("set-package-networking-enabled")
+    }
+
+    fun cut(on: Boolean) {
+        if (on) Shell.run("cmd connectivity set-chain3-enabled true")
+        Shell.run("cmd connectivity set-package-networking-enabled ${!on} $pkg")
+    }
+
+    /** Lets the app's traffic through again, whatever a failed test left behind. */
+    fun restore() {
+        if (!supported) return
+        Shell.run("cmd connectivity set-package-networking-enabled true $pkg")
+        Shell.run("cmd connectivity set-chain3-enabled false")
+    }
+}

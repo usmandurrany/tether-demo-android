@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Connection stability tests on an Android phone or emulator connected over adb:
-# runs the instrumented tests in app/src/androidTest/.../stability (poor network,
-# Wi-Fi/mobile switching, network toggling, opening and closing the app), and
-# optionally kills and restarts the app to time cold starts.
+# runs the instrumented tests in app/src/androidTest/.../stability (the app cut
+# off while Wi-Fi stays up, Wi-Fi/mobile switching, network toggling, opening and
+# closing the app), and optionally kills and restarts the app to time cold starts.
 #
 # The server is either an existing XMPP server (XMPP_SERVER set) or a throwaway
-# ejabberd in Docker. Either way, Toxiproxy runs in Docker on this computer in
-# front of it, so the poor-network tests can spoil the link (TOXIPROXY=false
-# skips them and needs no Docker at all with an existing server).
+# ejabberd in Docker on this computer.
 #
 # Build first: ./gradlew assembleDebug assembleDebugAndroidTest
 # A phone must stay connected over USB (not wireless adb): the tests turn its
@@ -26,10 +24,9 @@
 #   BOB_JID, BOB_PASSWORD       the account on the other side of the chat
 #
 # Common:
-#   HOST_IP             this computer's address as the device reaches it, for
-#                       Toxiproxy and the throwaway server (default 10.0.2.2, the
-#                       emulator's; for a phone, this computer's Wi-Fi IP)
-#   TOXIPROXY           false to run without Toxiproxy (default true)
+#   HOST_IP             with the throwaway server, this computer's address as the
+#                       device reaches it (default 10.0.2.2, the emulator's; for a
+#                       phone, this computer's Wi-Fi IP)
 #   MOBILE_DATA         true when the device can also reach the server and this
 #                       computer over mobile data (default true on an emulator,
 #                       false otherwise). When false, mobile data is kept off during
@@ -46,12 +43,10 @@ RUNNER=$PKG.test/androidx.test.runner.AndroidJUnitRunner
 LIMIT=${RECONNECT_LIMIT_MS:-10000}
 COLD_STARTS=${COLD_STARTS:-0}
 HOST_IP=${HOST_IP:-10.0.2.2}
-TOXIPROXY=${TOXIPROXY:-true}
 if [ -z "${MOBILE_DATA:-}" ]; then
-  [ "$HOST_IP" = 10.0.2.2 ] && MOBILE_DATA=true || MOBILE_DATA=false
+  [ "$HOST_IP" = 10.0.2.2 ] && [ -z "${XMPP_SERVER:-}" ] && MOBILE_DATA=true || MOBILE_DATA=false
 fi
-CLASSES=${STABILITY_CLASSES:-PoorNetworkTest,NetworkSwitchTest,NetworkToggleTest,AppOpenCloseTest}
-NET=tether-stability
+CLASSES=${STABILITY_CLASSES:-AppCutOffTest,NetworkSwitchTest,NetworkToggleTest,AppOpenCloseTest}
 EJ=tether-stability-ejabberd
 # Milliseconds since the epoch; macOS's date has no %N.
 now_ms() { python3 -c 'import time; print(int(time.time() * 1000))'; }
@@ -69,15 +64,12 @@ if [ -n "${XMPP_SERVER:-}" ]; then
     [ -n "$XMPP_SERVER_IP" ] || { echo "Could not resolve $XMPP_SERVER; set XMPP_SERVER_IP" >&2; exit 1; }
   fi
   SERVER_FOR_DEVICE=$XMPP_SERVER_IP
-  UPSTREAM="$XMPP_SERVER_IP:$XMPP_PORT"
   echo "--- Using the server at $XMPP_SERVER ($XMPP_SERVER_IP:$XMPP_PORT), domain $XMPP_DOMAIN"
 else
   XMPP_PORT=5222
   XMPP_DOMAIN=localhost
   ALICE_JID=alice@localhost ALICE_PASSWORD=secret BOB_JID=bob@localhost BOB_PASSWORD=secret
   SERVER_FOR_DEVICE=$HOST_IP
-  UPSTREAM="$EJ:5222"
-  docker network create $NET >/dev/null 2>&1 || true
   server_ready() {
     for _ in $(seq 90); do
       docker exec $EJ ejabberdctl status >/dev/null 2>&1 && return 0
@@ -90,27 +82,12 @@ else
   }
   start_server() {
     docker rm -f $EJ >/dev/null 2>&1 || true
-    docker run -d --name $EJ --network $NET -p 5222:5222 "${EJABBERD_IMAGE:-ghcr.io/processone/ejabberd:26.07}" >/dev/null
+    docker run -d --name $EJ -p 5222:5222 "${EJABBERD_IMAGE:-ghcr.io/processone/ejabberd:26.07}" >/dev/null
     server_ready
   }
   start_server || start_server
   docker exec $EJ ejabberdctl register alice localhost secret
   docker exec $EJ ejabberdctl register bob localhost secret
-fi
-
-# --- Proxy --------------------------------------------------------------------------
-# Toxiproxy on 15222 forwards to the server; its API on 8474 lets the tests spoil the link.
-
-if [ "$TOXIPROXY" = true ]; then
-  docker rm -f tether-stability-toxiproxy >/dev/null 2>&1 || true
-  if [ -n "${XMPP_SERVER:-}" ]; then net_args=(); else net_args=(--network $NET); fi
-  docker run -d --name tether-stability-toxiproxy ${net_args[@]+"${net_args[@]}"} -p 8474:8474 -p 15222:15222 ghcr.io/shopify/toxiproxy:2.12.0 >/dev/null
-  for _ in $(seq 30); do curl -sf http://localhost:8474/version >/dev/null && break; sleep 1; done
-  curl -sf -X POST http://localhost:8474/proxies \
-    -d "{\"name\":\"xmpp\",\"listen\":\"0.0.0.0:15222\",\"upstream\":\"$UPSTREAM\"}" >/dev/null
-  TOXIPROXY_API="http://$HOST_IP:8474"
-else
-  TOXIPROXY_API=none
 fi
 
 # --- App ------------------------------------------------------------------------------
@@ -129,6 +106,8 @@ restore_device() {
   adb shell svc wifi enable >/dev/null 2>&1 || true
   adb shell svc data enable >/dev/null 2>&1 || true
   adb shell svc power stayon false >/dev/null 2>&1 || true
+  adb shell cmd connectivity set-package-networking-enabled true $PKG >/dev/null 2>&1 || true
+  adb shell cmd connectivity set-chain3-enabled false >/dev/null 2>&1 || true
 }
 
 echo "--- Networks on the device"
@@ -136,17 +115,12 @@ adb shell dumpsys connectivity | grep -E "^ *NetworkAgentInfo|Active default net
 
 ARGS=(-e xmppHost "$SERVER_FOR_DEVICE" -e xmppPort "$XMPP_PORT" -e xmppDomain "$XMPP_DOMAIN"
       -e aliceJid "$ALICE_JID" -e alicePassword "$ALICE_PASSWORD" -e bobJid "$BOB_JID" -e bobPassword "$BOB_PASSWORD"
-      -e proxyHost "$HOST_IP" -e proxyPort 15222 -e toxiproxyApi "$TOXIPROXY_API"
       -e mobileData "$MOBILE_DATA" -e reconnectLimitMs "$LIMIT")
 
-# The device must reach the server (and Toxiproxy) before anything else is worth running.
+# The device must reach the server before anything else is worth running.
 reaches() { adb shell "nc -z -w 5 $1 $2 2>/dev/null || toybox nc -z -w 5 $1 $2" >/dev/null 2>&1; }
 reaches "$SERVER_FOR_DEVICE" "$XMPP_PORT" \
   || echo "Warning: could not confirm that the device reaches the server at $SERVER_FOR_DEVICE:$XMPP_PORT." >&2
-if [ "$TOXIPROXY" = true ]; then
-  reaches "$HOST_IP" 15222 || echo "Warning: could not confirm that the device reaches Toxiproxy at $HOST_IP:15222." \
-    "HOST_IP must be this computer's Wi-Fi IP, and the firewall must allow ports 15222 and 8474." >&2
-fi
 
 adb logcat -G 16M || true
 adb logcat -c

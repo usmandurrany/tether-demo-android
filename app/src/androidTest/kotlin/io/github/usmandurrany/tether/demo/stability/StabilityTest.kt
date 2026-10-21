@@ -35,10 +35,9 @@ import java.util.UUID
  * Shared setup for the connection stability tests.
  *
  * Alice is the demo app's own session: signed in through [DemoApp.signIn] like
- * the settings page does, bound to the real app lifecycle and network monitor,
- * and connected through Toxiproxy so a test can spoil the link. Bob is a plain
- * SDK client in the same process, connected straight to the server, used to
- * check that messages really get through after each disruption.
+ * the settings page does, and bound to the real app lifecycle and network
+ * monitor. Bob is a plain SDK client in the same process, used to check that
+ * messages really get through after each disruption.
  *
  * Arguments (instrumentation runner):
  * - `xmppHost`, `xmppDomain`: the server, as the device reaches it, and its
@@ -46,11 +45,7 @@ import java.util.UUID
  * - `aliceJid`, `alicePassword`, `bobJid`, `bobPassword`: the two accounts
  *   (default `alice@domain` and `bob@domain`, both with `xmppPassword`, default
  *   "secret"). Alice is the app's account; the tests sign the app in as her.
- * - `xmppPort` (5222): the server's own port, for bob.
- * - `proxyHost` (`xmppHost`), `proxyPort` (15222): Toxiproxy's listener in
- *   front of the server, as the device reaches it, for alice.
- * - `toxiproxyApi` (`http://<xmppHost>:8474`), or `none` without Toxiproxy:
- *   alice then connects to the server directly and [PoorNetworkTest] is skipped.
+ * - `xmppPort` (5222): the server's client port.
  * - `reconnectLimitMs` (10000): how soon the connection must work again.
  * - `mobileData` (true): false when the server is only reachable over Wi-Fi
  *   (a test server on the local network, with a real phone): mobile data is
@@ -67,12 +62,10 @@ abstract class StabilityTest {
 
     protected val limit: Long = args.getString("reconnectLimitMs")?.toLongOrNull() ?: 10_000
     protected val mobileData: Boolean = args.getString("mobileData") != "false"
-    protected val hasProxy: Boolean = args.getString("toxiproxyApi") != "none"
     protected val report = Report(javaClass.simpleName)
     protected val timeline = Timeline()
 
     protected lateinit var network: DeviceNetwork
-    protected lateinit var proxy: Toxiproxy
     protected lateinit var alice: TetherSession
     protected lateinit var bob: TetherChat
     protected lateinit var aliceJid: BareJid
@@ -87,9 +80,6 @@ abstract class StabilityTest {
         val domain = args.getString("xmppDomain")
         assumeTrue("No test server given", host != null && domain != null)
         val directPort = args.getString("xmppPort")?.toIntOrNull() ?: 5222
-        val proxyHost = args.getString("proxyHost") ?: host!!
-        val aliceHost = if (hasProxy) proxyHost else host!!
-        val alicePort = if (hasProxy) args.getString("proxyPort") ?: "15222" else directPort.toString()
         aliceJid = BareJid.parse(args.getString("aliceJid") ?: "alice@$domain")
         bobJid = BareJid.parse(args.getString("bobJid") ?: "bob@$domain")
         val alicePassword = args.getString("alicePassword") ?: args.getString("xmppPassword") ?: "secret"
@@ -99,14 +89,13 @@ abstract class StabilityTest {
         network.restore()
         scope.launch { network.default.collect { timeline.add("os", it?.toString() ?: "no network") } }
 
-        proxy = Toxiproxy(args.getString("toxiproxyApi") ?: "http://$proxyHost:8474", "xmpp")
-        if (hasProxy) proxy.reset()
+        AppFirewall.restore()
 
         // The app in the foreground, as a user would have it.
         AppSwitcher.open()
 
         // Alice signs in as the settings page does, trusting the test server's self-signed certificate.
-        var settings = ConnectionSettings(jid = aliceJid.toString(), host = aliceHost, port = alicePort, pinnedCertificates = pins)
+        var settings = ConnectionSettings(jid = aliceJid.toString(), host = host!!, port = directPort.toString(), pinnedCertificates = pins)
         var result = app.signIn(settings, alicePassword)
         if (result is SignInResult.UntrustedCertificate) {
             pins = setOf(result.sha256)
@@ -127,7 +116,7 @@ abstract class StabilityTest {
     @After
     fun tearDown() = runBlocking<Unit> {
         report.print()
-        if (hasProxy) runCatching { proxy.reset() }
+        runCatching { AppFirewall.restore() }
         if (::network.isInitialized) {
             network.restore()
             network.close()

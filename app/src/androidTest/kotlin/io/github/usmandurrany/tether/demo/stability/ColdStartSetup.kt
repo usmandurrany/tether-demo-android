@@ -26,12 +26,10 @@ class ColdStartSetup {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as DemoApp
         val host = args.getString("xmppHost")!!
         val domain = args.getString("xmppDomain")!!
-        val direct = args.getString("toxiproxyApi") == "none"
-        val port = if (direct) args.getString("xmppPort") ?: "5222" else args.getString("proxyPort") ?: "15222"
         var settings = ConnectionSettings(
             jid = args.getString("aliceJid") ?: "alice@$domain",
-            host = if (direct) host else args.getString("proxyHost") ?: host,
-            port = port,
+            host = host,
+            port = args.getString("xmppPort") ?: "5222",
             autoConnect = true,
         )
         val password = args.getString("alicePassword") ?: args.getString("xmppPassword") ?: "secret"
