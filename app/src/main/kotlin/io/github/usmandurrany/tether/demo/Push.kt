@@ -96,7 +96,7 @@ class MessageNotifier(private val context: Context, private val session: TetherS
 
     init {
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Messages", NotificationManager.IMPORTANCE_HIGH))
+        manager.createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.notification_channel), NotificationManager.IMPORTANCE_HIGH))
         scope.launch {
             // Messages kept on the device load as the session starts; nothing can arrive
             // from the server before the first connection attempt, so everything there by
@@ -122,16 +122,19 @@ class MessageNotifier(private val context: Context, private val session: TetherS
     @SuppressLint("MissingPermission") // checked by canNotify, and a late revoke is caught
     private fun notify(title: String, text: String, peer: String, unread: Int) {
         if (!DemoPush.canNotify(context)) return
+        // Opens this chat: in the running activity (onNewIntent) or a new one.
         val open = PendingIntent.getActivity(
             context,
-            0,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            peer.hashCode(),
+            Intent(context, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_PEER, peer)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(title)
-            .setContentText(text.ifBlank { "New message" })
+            .setContentText(text.ifBlank { context.getString(R.string.new_message) })
             .setNumber(unread)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

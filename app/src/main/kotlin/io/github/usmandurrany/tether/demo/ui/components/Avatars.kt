@@ -1,4 +1,4 @@
-package io.github.usmandurrany.tether.demo.ui
+package io.github.usmandurrany.tether.demo.ui.components
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -22,10 +22,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.usmandurrany.tether.demo.R
 import io.github.usmandurrany.tether.im.Avatar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -66,21 +68,21 @@ fun AvatarImage(avatar: Avatar?, name: String, size: Dp = 40.dp, dot: Color? = n
         if (bitmap != null) {
             Image(
                 bitmap.asImageBitmap(),
-                contentDescription = "Picture of $name",
+                contentDescription = stringResource(R.string.picture_of, name),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(size).clip(CircleShape).testTag("avatar-picture"),
             )
         } else {
             val hue = (name.lowercase().hashCode() and 0xffff) / 65535f * 360f
             Box(
-                Modifier.size(size).clip(CircleShape).background(Color.hsv(hue, 0.45f, 0.75f)),
+                Modifier.size(size).clip(CircleShape).background(Color.hsv(hue, 0.7f, 0.6f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    name.trim().firstOrNull()?.uppercase() ?: "?",
+                    initials(name),
                     color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = (size.value * 0.42f).sp,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = (size.value * 0.38f).sp,
                 )
             }
         }
@@ -88,11 +90,21 @@ fun AvatarImage(avatar: Avatar?, name: String, size: Dp = 40.dp, dot: Color? = n
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .size(size / 4 + 2.dp)
+                    .size(size / 4 + 3.dp)
                     .clip(CircleShape)
                     .background(dot)
-                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                    .border(2.5.dp, MaterialTheme.colorScheme.surface, CircleShape),
             )
         }
+    }
+}
+
+/** "Alice Martin" → "AM", "bob@example.com" → "B". */
+internal fun initials(name: String): String {
+    val words = name.trim().substringBefore('@').split(' ', '.', '_', '-').filter { it.isNotBlank() }
+    return when {
+        words.isEmpty() -> "?"
+        words.size == 1 -> words[0].take(1).uppercase()
+        else -> (words[0].take(1) + words[1].take(1)).uppercase()
     }
 }

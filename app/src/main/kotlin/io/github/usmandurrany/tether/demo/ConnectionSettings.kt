@@ -1,7 +1,9 @@
 package io.github.usmandurrany.tether.demo
 
 import android.content.Context
+import android.os.Parcelable
 import io.github.usmandurrany.tether.core.BackgroundMode
+import kotlinx.parcelize.Parcelize
 import java.util.UUID
 
 /**
@@ -12,6 +14,7 @@ import java.util.UUID
  * The password is deliberately not here: it is used once, then the SDK keeps
  * only the derived SCRAM keys in encrypted storage.
  */
+@Parcelize
 data class ConnectionSettings(
     val jid: String = "",
     /** Empty lets the server choose a resource. */
@@ -43,7 +46,7 @@ data class ConnectionSettings(
     val keepMessages: Boolean = true,
     /** Names and profile pictures (ChatFeatures.profiles, vCard). On, like the SDK. */
     val profiles: Boolean = true,
-) {
+) : Parcelable {
     val remoteLoggingEnabled: Boolean get() = logEndpoint.isNotBlank() && logIngestKey.isNotBlank()
 }
 

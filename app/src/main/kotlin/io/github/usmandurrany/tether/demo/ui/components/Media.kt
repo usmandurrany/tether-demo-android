@@ -1,4 +1,4 @@
-package io.github.usmandurrany.tether.demo.ui
+package io.github.usmandurrany.tether.demo.ui.components
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -22,7 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import io.github.usmandurrany.tether.demo.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
@@ -117,13 +119,17 @@ fun RemotePhoto(url: String, width: Int?, height: Int?, modifier: Modifier = Mod
         if (loaded == null) failed = true else bitmap = loaded
     }
     val ratio = if (width != null && height != null && width > 0 && height > 0) width.toFloat() / height else 4f / 3f
-    val shape = modifier.fillMaxWidth().aspectRatio(ratio.coerceIn(0.5f, 2.5f)).clip(RoundedCornerShape(10.dp))
+    val shape = modifier.fillMaxWidth().aspectRatio(ratio.coerceIn(0.5f, 2.5f)).clip(RoundedCornerShape(14.dp))
     val image = bitmap
     if (image != null) {
-        Image(image.asImageBitmap(), contentDescription = "Photo", contentScale = ContentScale.Crop, modifier = shape)
+        Image(image.asImageBitmap(), contentDescription = stringResource(R.string.attach_photo), contentScale = ContentScale.Crop, modifier = shape)
     } else {
-        Box(shape.background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {
-            Text(if (failed) "Photo couldn't load" else "Loading photo…", style = MaterialTheme.typography.labelSmall)
+        Box(shape.background(MaterialTheme.colorScheme.surfaceContainerHighest), contentAlignment = Alignment.Center) {
+            Text(
+                stringResource(if (failed) R.string.photo_failed else R.string.photo_loading),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
