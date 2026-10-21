@@ -3,6 +3,7 @@ package io.github.usmandurrany.tether.demo.stability
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.random.Random
@@ -48,6 +49,7 @@ class NetworkToggleTest : StabilityTest() {
 
     @Test
     fun recoversAfterWifiFlappingWithMobileUp() = runBlocking<Unit> {
+        assumeTrue("Needs the server reachable over mobile data", mobileData)
         // Wi-Fi drops in and out while mobile data stays on: the default network flips each time.
         repeat(8) { flip ->
             network.wifi(flip % 2 == 1)

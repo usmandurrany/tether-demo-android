@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 
 /**
  * Not a test on its own: signs alice in with "Connect on app start" and leaves
- * her signed in, so `scripts/stability-emulator.sh` can kill and restart the
+ * her signed in, so `scripts/stability.sh` can kill and restart the
  * app over and over and time how soon each cold start is online. Runs only
  * when asked for with the `prepareColdStart` argument.
  */

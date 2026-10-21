@@ -18,7 +18,7 @@ class NetworkSwitchTest : StabilityTest() {
     @Before
     fun needsWifiAndMobile() = runBlocking<Unit> {
         if (canSwitch == null) canSwitch = network.canSwitch()
-        assumeTrue("The emulator needs both Wi-Fi and mobile data", canSwitch == true)
+        assumeTrue("Needs both Wi-Fi and mobile data, with the server reachable over both", canSwitch == true)
         // canSwitch toggled Wi-Fi; start from a working connection.
         awaitRecovered("setup", now(), limitMs = 30_000)
     }

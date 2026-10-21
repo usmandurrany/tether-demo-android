@@ -47,6 +47,9 @@ import java.util.UUID
  * - `proxyPort` (15222): Toxiproxy's listener in front of the server, for alice.
  * - `toxiproxyApi` (`http://<xmppHost>:8474`).
  * - `reconnectLimitMs` (10000): how soon the connection must work again.
+ * - `mobileData` (true): false when the server is only reachable over Wi-Fi
+ *   (a test server on the local network, with a real phone): mobile data is
+ *   kept off and the tests that need it are skipped.
  *
  * Recovery is measured from the moment the disruption ends (for a network,
  * when Android reports it back) to the first moment the SDK is online and a
@@ -58,6 +61,7 @@ abstract class StabilityTest {
     protected val app: DemoApp get() = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as DemoApp
 
     protected val limit: Long = args.getString("reconnectLimitMs")?.toLongOrNull() ?: 10_000
+    protected val mobileData: Boolean = args.getString("mobileData") != "false"
     protected val report = Report(javaClass.simpleName)
     protected val timeline = Timeline()
 
@@ -82,7 +86,7 @@ abstract class StabilityTest {
         aliceJid = BareJid.parse("alice@$domain")
         bobJid = BareJid.parse("bob@$domain")
 
-        network = DeviceNetwork(InstrumentationRegistry.getInstrumentation().targetContext)
+        network = DeviceNetwork(InstrumentationRegistry.getInstrumentation().targetContext, mobileData)
         network.restore()
         scope.launch { network.default.collect { timeline.add("os", it?.toString() ?: "no network") } }
 

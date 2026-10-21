@@ -5,7 +5,7 @@ import java.net.URL
 
 /**
  * A small client for Toxiproxy's HTTP API (https://github.com/Shopify/toxiproxy).
- * The CI script runs Toxiproxy between the emulator and the XMPP server, so a
+ * scripts/stability.sh runs Toxiproxy between the device and the XMPP server, so a
  * test can make the link slow, narrow, choppy or dead on purpose.
  */
 class Toxiproxy(private val api: String, private val proxy: String) {

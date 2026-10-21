@@ -1,24 +1,39 @@
 #!/usr/bin/env bash
-# Connection stability tests on a running emulator: starts a throwaway ejabberd
-# with Toxiproxy in front of it, runs the instrumented tests in
-# app/src/androidTest/.../stability (poor network, Wi-Fi/mobile switching,
-# network toggling, opening and closing the app), then kills and restarts the
-# app repeatedly to time cold starts. Used by CI; works locally too with Docker
-# and an emulator running, after ./gradlew assembleDebug assembleDebugAndroidTest.
+# Connection stability tests on an Android device or emulator connected over adb:
+# starts a throwaway ejabberd with Toxiproxy in front of it in Docker on this
+# computer, runs the instrumented tests in app/src/androidTest/.../stability
+# (poor network, Wi-Fi/mobile switching, network toggling, opening and closing
+# the app), and optionally kills and restarts the app to time cold starts.
+#
+# Build first: ./gradlew assembleDebug assembleDebugAndroidTest
+# A phone must stay connected over USB (not wireless adb): the tests turn its
+# Wi-Fi off and on. It must be unlocked; the script keeps the screen on.
 #
 # Writes stability-report.txt (one line per measured recovery), plus
 # stability-instrument.txt and stability-logcat.txt for digging into failures.
 #
+#   XMPP_HOST           address the device uses to reach this computer
+#                       (default 10.0.2.2, the emulator's; for a phone, this
+#                       computer's IP on the Wi-Fi network the phone is on)
+#   MOBILE_DATA         true when the device can also reach XMPP_HOST over mobile
+#                       data (default true on an emulator, false otherwise). When
+#                       false, mobile data is kept off during the run and the
+#                       Wi-Fi/mobile switching tests are skipped.
 #   STABILITY_CLASSES   test classes to run (default: all four)
 #   RECONNECT_LIMIT_MS  how soon the connection must work again (default 10000)
-#   COLD_STARTS         number of measured cold starts (default 10; 0 skips them)
+#   COLD_STARTS         number of measured cold starts (default 0). They need a
+#                       server that stores SCRAM keys: see the note at the server.
 #   EJABBERD_IMAGE      server image (default: ejabberd 26.07; 26.09 does not start in Docker)
 set -euo pipefail
 APKS=${APKS:-app/build/outputs/apk}
 PKG=io.github.usmandurrany.tether.demo
 RUNNER=$PKG.test/androidx.test.runner.AndroidJUnitRunner
 LIMIT=${RECONNECT_LIMIT_MS:-10000}
-COLD_STARTS=${COLD_STARTS:-10}
+COLD_STARTS=${COLD_STARTS:-0}
+XMPP_HOST=${XMPP_HOST:-10.0.2.2}
+if [ -z "${MOBILE_DATA:-}" ]; then
+  [ "$XMPP_HOST" = 10.0.2.2 ] && MOBILE_DATA=true || MOBILE_DATA=false
+fi
 CLASSES=${STABILITY_CLASSES:-PoorNetworkTest,NetworkSwitchTest,NetworkToggleTest,AppOpenCloseTest}
 NET=tether-stability
 rm -f stability-report.txt stability-instrument.txt stability-logcat.txt stability-coldstart.txt
@@ -37,24 +52,13 @@ server_ready() {
   docker logs $EJ 2>&1 | tail -n 100 >&2
   return 1
 }
+# The image keeps plain passwords, so ejabberd makes up a new salt for every
+# login and the SCRAM keys the app saves after signing in never work again:
+# a cold start then needs the password. Cold starts need a server that stores
+# SCRAM keys, which this one does not (yet).
 start_server() {
   docker rm -f $EJ >/dev/null 2>&1 || true
   docker run -d --name $EJ --network $NET -p 5222:5222 "${EJABBERD_IMAGE:-ghcr.io/processone/ejabberd:26.07}" >/dev/null
-  server_ready || return 1
-  # Store passwords as SCRAM-SHA-512 keys, as a production server would. With the
-  # image's default (plain passwords) ejabberd makes up a new salt for every login,
-  # so the keys the app saves can never log in again and cold starts need the password.
-  # SHA-512 because the SDK picks the strongest SCRAM variant offered, and with
-  # SHA-256 keys stored every login was refused.
-  docker exec $EJ sh -c '
-    for f in /opt/ejabberd/conf/ejabberd.yml /home/ejabberd/conf/ejabberd.yml; do
-      [ -f "$f" ] || continue
-      sed -i "/^auth_password_format:/d; /^auth_scram_hash:/d" "$f"
-      printf "\nauth_password_format: scram\nauth_scram_hash: sha512\n" >> "$f"
-      exit 0
-    done
-    echo "ejabberd.yml not found" >&2; exit 1'
-  docker restart $EJ >/dev/null
   server_ready
 }
 start_server || start_server
@@ -75,17 +79,34 @@ adb install -r "$APKS/androidTest/debug/app-debug-androidTest.apk"
 # Lets the instrumentation post notifications without a dialog in the way.
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
 
+# Keep the screen on and unlocked; give the device its networks back at the end.
+adb shell svc power stayon true || true
+adb shell input keyevent KEYCODE_WAKEUP || true
+adb shell wm dismiss-keyguard || true
+restore_device() {
+  adb shell cmd connectivity airplane-mode disable >/dev/null 2>&1 || true
+  adb shell svc wifi enable >/dev/null 2>&1 || true
+  adb shell svc data enable >/dev/null 2>&1 || true
+  adb shell svc power stayon false >/dev/null 2>&1 || true
+}
+
 echo "--- Networks on the emulator"
 adb shell dumpsys connectivity | grep -E "^ *NetworkAgentInfo|Active default network" | head -n 10 || true
 
-ARGS=(-e xmppHost 10.0.2.2 -e xmppDomain localhost -e xmppPassword secret
-      -e proxyPort 15222 -e toxiproxyApi http://10.0.2.2:8474 -e reconnectLimitMs "$LIMIT")
+ARGS=(-e xmppHost "$XMPP_HOST" -e xmppDomain localhost -e xmppPassword secret -e mobileData "$MOBILE_DATA"
+      -e proxyPort 15222 -e toxiproxyApi "http://$XMPP_HOST:8474" -e reconnectLimitMs "$LIMIT")
+
+# The device must reach the server before anything else is worth running.
+if ! adb shell "nc -z -w 5 $XMPP_HOST 5222 2>/dev/null || toybox nc -z -w 5 $XMPP_HOST 5222" >/dev/null 2>&1; then
+  echo "Warning: could not confirm that the device reaches $XMPP_HOST:5222 (no nc on the device, or blocked)." >&2
+  echo "On a phone, XMPP_HOST must be this computer's Wi-Fi IP and the firewall must allow 5222, 15222 and 8474." >&2
+fi
 
 adb logcat -G 16M || true
 adb logcat -c
 adb logcat -v time > stability-logcat.txt &
 LOGCAT=$!
-trap 'kill $LOGCAT 2>/dev/null || true' EXIT
+trap 'kill $LOGCAT 2>/dev/null || true; restore_device' EXIT
 
 # --- Instrumented tests ---------------------------------------------------------------
 
@@ -94,8 +115,7 @@ adb shell am instrument -w -r -e class "$TESTS" "${ARGS[@]}" $RUNNER | tee stabi
 tests_ok=true
 grep -q "^OK (" stability-instrument.txt || tests_ok=false
 if ! $tests_ok; then
-  echo "--- Server auth settings and log"
-  docker exec $EJ sh -c 'grep -n "^auth_" /opt/ejabberd/conf/ejabberd.yml /home/ejabberd/conf/ejabberd.yml 2>/dev/null' || true
+  echo "--- Server log"
   docker exec $EJ ejabberdctl check_password alice localhost secret && echo "alice's password checks out" || true
   docker logs $EJ 2>&1 | grep -iE "auth|sasl|scram|fail|error" | tail -n 40 || true
   echo "--- SDK log"

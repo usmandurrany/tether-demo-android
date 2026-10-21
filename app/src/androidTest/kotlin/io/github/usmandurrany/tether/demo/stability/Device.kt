@@ -39,7 +39,7 @@ data class OsNetwork(val handle: Long, val transports: Set<String>) {
  * the time Android took to bring a network up from the time the SDK took to
  * reconnect on it.
  */
-class DeviceNetwork(context: Context) {
+class DeviceNetwork(context: Context, private val useMobileData: Boolean = true) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val _default = MutableStateFlow<OsNetwork?>(null)
 
@@ -91,16 +91,20 @@ class DeviceNetwork(context: Context) {
     suspend fun awaitNone(timeoutMillis: Long = 30_000): Boolean =
         withTimeoutOrNull(timeoutMillis) { default.first { it == null } } != null || default.value == null
 
-    /** Everything back on: no airplane mode, Wi-Fi and mobile data enabled. */
+    /**
+     * Everything back on: no airplane mode, Wi-Fi enabled, and mobile data
+     * enabled, or kept off when the server is only reachable over Wi-Fi.
+     */
     suspend fun restore() {
         airplaneMode(false)
         wifi(true)
-        mobileData(true)
+        mobileData(useMobileData)
         await(60_000)
     }
 
     /** True when the emulator has both Wi-Fi and a mobile network to switch between. */
     suspend fun canSwitch(): Boolean {
+        if (!useMobileData) return false
         restore()
         val wifi = await(30_000) { it.wifi } != null
         this.wifi(false)
