@@ -12,6 +12,7 @@
 #   STABILITY_CLASSES   test classes to run (default: all four)
 #   RECONNECT_LIMIT_MS  how soon the connection must work again (default 10000)
 #   COLD_STARTS         number of measured cold starts (default 10; 0 skips them)
+#   EJABBERD_IMAGE      server image (default: ejabberd 26.07; 26.09 does not start in Docker)
 set -euo pipefail
 APKS=${APKS:-app/build/outputs/apk}
 PKG=io.github.usmandurrany.tether.demo
@@ -38,7 +39,7 @@ server_ready() {
 }
 start_server() {
   docker rm -f $EJ >/dev/null 2>&1 || true
-  docker run -d --name $EJ --network $NET -p 5222:5222 ghcr.io/processone/ejabberd:latest >/dev/null
+  docker run -d --name $EJ --network $NET -p 5222:5222 "${EJABBERD_IMAGE:-ghcr.io/processone/ejabberd:26.07}" >/dev/null
   server_ready || return 1
   # Store passwords as SCRAM-SHA-256 keys, as a production server would. With the
   # image's default (plain passwords) ejabberd makes up a new salt for every login,

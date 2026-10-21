@@ -10,7 +10,7 @@ APKS=${APKS:-app/build/outputs/apk}
 # never comes up, so a failed start can be told apart from a failed test.
 start_server() {
   docker rm -f tether-e2e-ejabberd >/dev/null 2>&1 || true
-  docker run -d --name tether-e2e-ejabberd -p 5222:5222 ghcr.io/processone/ejabberd:latest >/dev/null
+  docker run -d --name tether-e2e-ejabberd -p 5222:5222 "${EJABBERD_IMAGE:-ghcr.io/processone/ejabberd:26.07}" >/dev/null
   for _ in $(seq 90); do
     docker exec tether-e2e-ejabberd ejabberdctl status >/dev/null 2>&1 && return 0
     [ "$(docker inspect -f '{{.State.Running}}' tether-e2e-ejabberd)" = true ] || break
