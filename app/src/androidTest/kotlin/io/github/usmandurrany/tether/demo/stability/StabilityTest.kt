@@ -41,11 +41,16 @@ import java.util.UUID
  * check that messages really get through after each disruption.
  *
  * Arguments (instrumentation runner):
- * - `xmppHost`, `xmppDomain`, `xmppPassword`: the server and the password of
- *   accounts `alice@domain` and `bob@domain`. Without them the tests are skipped.
+ * - `xmppHost`, `xmppDomain`: the server, as the device reaches it, and its
+ *   XMPP domain. Without them the tests are skipped.
+ * - `aliceJid`, `alicePassword`, `bobJid`, `bobPassword`: the two accounts
+ *   (default `alice@domain` and `bob@domain`, both with `xmppPassword`, default
+ *   "secret"). Alice is the app's account; the tests sign the app in as her.
  * - `xmppPort` (5222): the server's own port, for bob.
- * - `proxyPort` (15222): Toxiproxy's listener in front of the server, for alice.
- * - `toxiproxyApi` (`http://<xmppHost>:8474`).
+ * - `proxyHost` (`xmppHost`), `proxyPort` (15222): Toxiproxy's listener in
+ *   front of the server, as the device reaches it, for alice.
+ * - `toxiproxyApi` (`http://<xmppHost>:8474`), or `none` without Toxiproxy:
+ *   alice then connects to the server directly and [PoorNetworkTest] is skipped.
  * - `reconnectLimitMs` (10000): how soon the connection must work again.
  * - `mobileData` (true): false when the server is only reachable over Wi-Fi
  *   (a test server on the local network, with a real phone): mobile data is
@@ -62,6 +67,7 @@ abstract class StabilityTest {
 
     protected val limit: Long = args.getString("reconnectLimitMs")?.toLongOrNull() ?: 10_000
     protected val mobileData: Boolean = args.getString("mobileData") != "false"
+    protected val hasProxy: Boolean = args.getString("toxiproxyApi") != "none"
     protected val report = Report(javaClass.simpleName)
     protected val timeline = Timeline()
 
@@ -80,36 +86,39 @@ abstract class StabilityTest {
         val host = args.getString("xmppHost")
         val domain = args.getString("xmppDomain")
         assumeTrue("No test server given", host != null && domain != null)
-        val password = args.getString("xmppPassword") ?: "secret"
-        val proxyPort = args.getString("proxyPort") ?: "15222"
         val directPort = args.getString("xmppPort")?.toIntOrNull() ?: 5222
-        aliceJid = BareJid.parse("alice@$domain")
-        bobJid = BareJid.parse("bob@$domain")
+        val proxyHost = args.getString("proxyHost") ?: host!!
+        val aliceHost = if (hasProxy) proxyHost else host!!
+        val alicePort = if (hasProxy) args.getString("proxyPort") ?: "15222" else directPort.toString()
+        aliceJid = BareJid.parse(args.getString("aliceJid") ?: "alice@$domain")
+        bobJid = BareJid.parse(args.getString("bobJid") ?: "bob@$domain")
+        val alicePassword = args.getString("alicePassword") ?: args.getString("xmppPassword") ?: "secret"
+        val bobPassword = args.getString("bobPassword") ?: args.getString("xmppPassword") ?: "secret"
 
         network = DeviceNetwork(InstrumentationRegistry.getInstrumentation().targetContext, mobileData)
         network.restore()
         scope.launch { network.default.collect { timeline.add("os", it?.toString() ?: "no network") } }
 
-        proxy = Toxiproxy(args.getString("toxiproxyApi") ?: "http://$host:8474", "xmpp")
-        proxy.reset()
+        proxy = Toxiproxy(args.getString("toxiproxyApi") ?: "http://$proxyHost:8474", "xmpp")
+        if (hasProxy) proxy.reset()
 
         // The app in the foreground, as a user would have it.
         AppSwitcher.open()
 
         // Alice signs in as the settings page does, trusting the test server's self-signed certificate.
-        var settings = ConnectionSettings(jid = aliceJid.toString(), host = host!!, port = proxyPort, pinnedCertificates = pins)
-        var result = app.signIn(settings, password)
+        var settings = ConnectionSettings(jid = aliceJid.toString(), host = aliceHost, port = alicePort, pinnedCertificates = pins)
+        var result = app.signIn(settings, alicePassword)
         if (result is SignInResult.UntrustedCertificate) {
             pins = setOf(result.sha256)
             settings = settings.copy(pinnedCertificates = pins)
-            result = app.signIn(settings, password)
+            result = app.signIn(settings, alicePassword)
         }
         check(result is SignInResult.Connected) { "Alice could not sign in: $result" }
         alice = app.session.value!!
         scope.launch { alice.client.state.collect { timeline.add("sdk", it.toString()) } }
         scope.launch { alice.client.foreground.collect { timeline.add("app", if (it) "foreground" else "background") } }
 
-        bob = bareClient(bobJid, host, directPort, password)
+        bob = bareClient(bobJid, host!!, directPort, bobPassword)
         // Bob shares the device's network, so he hears about it like a real app would.
         scope.launch { network.default.collect { bob.client.networkChanged(it != null, it?.handle?.toString(), it?.toString()) } }
         bobReady("setup")
@@ -118,7 +127,7 @@ abstract class StabilityTest {
     @After
     fun tearDown() = runBlocking<Unit> {
         report.print()
-        runCatching { proxy.reset() }
+        if (hasProxy) runCatching { proxy.reset() }
         if (::network.isInitialized) {
             network.restore()
             network.close()

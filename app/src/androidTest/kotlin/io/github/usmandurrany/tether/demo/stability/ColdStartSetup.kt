@@ -26,13 +26,15 @@ class ColdStartSetup {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as DemoApp
         val host = args.getString("xmppHost")!!
         val domain = args.getString("xmppDomain")!!
+        val direct = args.getString("toxiproxyApi") == "none"
+        val port = if (direct) args.getString("xmppPort") ?: "5222" else args.getString("proxyPort") ?: "15222"
         var settings = ConnectionSettings(
-            jid = "alice@$domain",
-            host = host,
-            port = args.getString("proxyPort") ?: "15222",
+            jid = args.getString("aliceJid") ?: "alice@$domain",
+            host = if (direct) host else args.getString("proxyHost") ?: host,
+            port = port,
             autoConnect = true,
         )
-        val password = args.getString("xmppPassword") ?: "secret"
+        val password = args.getString("alicePassword") ?: args.getString("xmppPassword") ?: "secret"
         var result = app.signIn(settings, password)
         if (result is SignInResult.UntrustedCertificate) {
             settings = settings.copy(pinnedCertificates = setOf(result.sha256))

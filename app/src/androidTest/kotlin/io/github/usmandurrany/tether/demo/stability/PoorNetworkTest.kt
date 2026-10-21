@@ -3,6 +3,8 @@ package io.github.usmandurrany.tether.demo.stability
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -13,6 +15,9 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class PoorNetworkTest : StabilityTest() {
+    @Before
+    fun needsToxiproxy() = assumeTrue("Needs Toxiproxy between the app and the server", hasProxy)
+
     /** About a weak 3G signal: ~400 ms round trips with jitter, 16 KB/s each way, data in small pieces. */
     private fun makeLinkPoor() {
         proxy.add("latency", "latency", mapOf("latency" to 150, "jitter" to 50))

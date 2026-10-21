@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Connection stability tests on an Android device or emulator connected over adb:
-# starts a throwaway ejabberd with Toxiproxy in front of it in Docker on this
-# computer, runs the instrumented tests in app/src/androidTest/.../stability
-# (poor network, Wi-Fi/mobile switching, network toggling, opening and closing
-# the app), and optionally kills and restarts the app to time cold starts.
+# Connection stability tests on an Android phone or emulator connected over adb:
+# runs the instrumented tests in app/src/androidTest/.../stability (poor network,
+# Wi-Fi/mobile switching, network toggling, opening and closing the app), and
+# optionally kills and restarts the app to time cold starts.
+#
+# The server is either an existing XMPP server (XMPP_SERVER set) or a throwaway
+# ejabberd in Docker. Either way, Toxiproxy runs in Docker on this computer in
+# front of it, so the poor-network tests can spoil the link (TOXIPROXY=false
+# skips them and needs no Docker at all with an existing server).
 #
 # Build first: ./gradlew assembleDebug assembleDebugAndroidTest
 # A phone must stay connected over USB (not wireless adb): the tests turn its
@@ -12,65 +16,100 @@
 # Writes stability-report.txt (one line per measured recovery), plus
 # stability-instrument.txt and stability-logcat.txt for digging into failures.
 #
-#   XMPP_HOST           address the device uses to reach this computer
-#                       (default 10.0.2.2, the emulator's; for a phone, this
-#                       computer's IP on the Wi-Fi network the phone is on)
-#   MOBILE_DATA         true when the device can also reach XMPP_HOST over mobile
-#                       data (default true on an emulator, false otherwise). When
-#                       false, mobile data is kept off during the run and the
-#                       Wi-Fi/mobile switching tests are skipped.
+# An existing server (passwords come from the environment, never from the repo):
+#   XMPP_SERVER         the server's host name or IP, as this computer reaches it
+#   XMPP_SERVER_IP      its IP for the device, if the device can't resolve the
+#                       name (default: what this computer resolves it to)
+#   XMPP_PORT           its client port (default 5222)
+#   XMPP_DOMAIN         its XMPP domain
+#   ALICE_JID, ALICE_PASSWORD   the account the app signs in as during the tests
+#   BOB_JID, BOB_PASSWORD       the account on the other side of the chat
+#
+# Common:
+#   HOST_IP             this computer's address as the device reaches it, for
+#                       Toxiproxy and the throwaway server (default 10.0.2.2, the
+#                       emulator's; for a phone, this computer's Wi-Fi IP)
+#   TOXIPROXY           false to run without Toxiproxy (default true)
+#   MOBILE_DATA         true when the device can also reach the server and this
+#                       computer over mobile data (default true on an emulator,
+#                       false otherwise). When false, mobile data is kept off during
+#                       the run and the Wi-Fi/mobile switching tests are skipped.
 #   STABILITY_CLASSES   test classes to run (default: all four)
 #   RECONNECT_LIMIT_MS  how soon the connection must work again (default 10000)
 #   COLD_STARTS         number of measured cold starts (default 0). They need a
-#                       server that stores SCRAM keys: see the note at the server.
-#   EJABBERD_IMAGE      server image (default: ejabberd 26.07; 26.09 does not start in Docker)
+#                       server that stores SCRAM keys, which the throwaway one does not.
+#   EJABBERD_IMAGE      throwaway server image (default: ejabberd 26.07; 26.09 does not start in Docker)
 set -euo pipefail
 APKS=${APKS:-app/build/outputs/apk}
 PKG=io.github.usmandurrany.tether.demo
 RUNNER=$PKG.test/androidx.test.runner.AndroidJUnitRunner
 LIMIT=${RECONNECT_LIMIT_MS:-10000}
 COLD_STARTS=${COLD_STARTS:-0}
-XMPP_HOST=${XMPP_HOST:-10.0.2.2}
+HOST_IP=${HOST_IP:-10.0.2.2}
+TOXIPROXY=${TOXIPROXY:-true}
 if [ -z "${MOBILE_DATA:-}" ]; then
-  [ "$XMPP_HOST" = 10.0.2.2 ] && MOBILE_DATA=true || MOBILE_DATA=false
+  [ "$HOST_IP" = 10.0.2.2 ] && MOBILE_DATA=true || MOBILE_DATA=false
 fi
 CLASSES=${STABILITY_CLASSES:-PoorNetworkTest,NetworkSwitchTest,NetworkToggleTest,AppOpenCloseTest}
 NET=tether-stability
+EJ=tether-stability-ejabberd
 rm -f stability-report.txt stability-instrument.txt stability-logcat.txt stability-coldstart.txt
 
-# --- Server and proxy ----------------------------------------------------------------
+# --- Server -------------------------------------------------------------------------
 
-docker network create $NET >/dev/null 2>&1 || true
-EJ=tether-stability-ejabberd
-server_ready() {
-  for _ in $(seq 90); do
-    docker exec $EJ ejabberdctl status >/dev/null 2>&1 && return 0
-    [ "$(docker inspect -f '{{.State.Running}}' $EJ)" = true ] || break
-    sleep 2
-  done
-  echo "ejabberd did not start:" >&2
-  docker logs $EJ 2>&1 | tail -n 100 >&2
-  return 1
-}
-# The image keeps plain passwords, so ejabberd makes up a new salt for every
-# login and the SCRAM keys the app saves after signing in never work again:
-# a cold start then needs the password. Cold starts need a server that stores
-# SCRAM keys, which this one does not (yet).
-start_server() {
-  docker rm -f $EJ >/dev/null 2>&1 || true
-  docker run -d --name $EJ --network $NET -p 5222:5222 "${EJABBERD_IMAGE:-ghcr.io/processone/ejabberd:26.07}" >/dev/null
-  server_ready
-}
-start_server || start_server
-docker exec $EJ ejabberdctl register alice localhost secret
-docker exec $EJ ejabberdctl register bob localhost secret
+if [ -n "${XMPP_SERVER:-}" ]; then
+  : "${XMPP_DOMAIN:?set XMPP_DOMAIN}" "${ALICE_JID:?set ALICE_JID}" "${ALICE_PASSWORD:?set ALICE_PASSWORD}"
+  : "${BOB_JID:?set BOB_JID}" "${BOB_PASSWORD:?set BOB_PASSWORD}"
+  XMPP_PORT=${XMPP_PORT:-5222}
+  if [ -z "${XMPP_SERVER_IP:-}" ]; then
+    XMPP_SERVER_IP=$(python3 -c 'import socket, sys; print(socket.gethostbyname(sys.argv[1]))' "$XMPP_SERVER" 2>/dev/null \
+      || getent hosts "$XMPP_SERVER" 2>/dev/null | awk '{print $1; exit}' || true)
+    [ -n "$XMPP_SERVER_IP" ] || { echo "Could not resolve $XMPP_SERVER; set XMPP_SERVER_IP" >&2; exit 1; }
+  fi
+  SERVER_FOR_DEVICE=$XMPP_SERVER_IP
+  UPSTREAM="$XMPP_SERVER_IP:$XMPP_PORT"
+  echo "--- Using the server at $XMPP_SERVER ($XMPP_SERVER_IP:$XMPP_PORT), domain $XMPP_DOMAIN"
+else
+  XMPP_PORT=5222
+  XMPP_DOMAIN=localhost
+  ALICE_JID=alice@localhost ALICE_PASSWORD=secret BOB_JID=bob@localhost BOB_PASSWORD=secret
+  SERVER_FOR_DEVICE=$HOST_IP
+  UPSTREAM="$EJ:5222"
+  docker network create $NET >/dev/null 2>&1 || true
+  server_ready() {
+    for _ in $(seq 90); do
+      docker exec $EJ ejabberdctl status >/dev/null 2>&1 && return 0
+      [ "$(docker inspect -f '{{.State.Running}}' $EJ)" = true ] || break
+      sleep 2
+    done
+    echo "ejabberd did not start:" >&2
+    docker logs $EJ 2>&1 | tail -n 100 >&2
+    return 1
+  }
+  start_server() {
+    docker rm -f $EJ >/dev/null 2>&1 || true
+    docker run -d --name $EJ --network $NET -p 5222:5222 "${EJABBERD_IMAGE:-ghcr.io/processone/ejabberd:26.07}" >/dev/null
+    server_ready
+  }
+  start_server || start_server
+  docker exec $EJ ejabberdctl register alice localhost secret
+  docker exec $EJ ejabberdctl register bob localhost secret
+fi
 
-# Toxiproxy on 15222 forwards to ejabberd; its API on 8474 lets the tests spoil the link.
-docker rm -f tether-stability-toxiproxy >/dev/null 2>&1 || true
-docker run -d --name tether-stability-toxiproxy --network $NET -p 8474:8474 -p 15222:15222 ghcr.io/shopify/toxiproxy:2.12.0 >/dev/null
-for _ in $(seq 30); do curl -sf http://localhost:8474/version >/dev/null && break; sleep 1; done
-curl -sf -X POST http://localhost:8474/proxies \
-  -d '{"name":"xmpp","listen":"0.0.0.0:15222","upstream":"tether-stability-ejabberd:5222"}' >/dev/null
+# --- Proxy --------------------------------------------------------------------------
+# Toxiproxy on 15222 forwards to the server; its API on 8474 lets the tests spoil the link.
+
+if [ "$TOXIPROXY" = true ]; then
+  docker rm -f tether-stability-toxiproxy >/dev/null 2>&1 || true
+  if [ -n "${XMPP_SERVER:-}" ]; then net_args=(); else net_args=(--network $NET); fi
+  docker run -d --name tether-stability-toxiproxy "${net_args[@]}" -p 8474:8474 -p 15222:15222 ghcr.io/shopify/toxiproxy:2.12.0 >/dev/null
+  for _ in $(seq 30); do curl -sf http://localhost:8474/version >/dev/null && break; sleep 1; done
+  curl -sf -X POST http://localhost:8474/proxies \
+    -d "{\"name\":\"xmpp\",\"listen\":\"0.0.0.0:15222\",\"upstream\":\"$UPSTREAM\"}" >/dev/null
+  TOXIPROXY_API="http://$HOST_IP:8474"
+else
+  TOXIPROXY_API=none
+fi
 
 # --- App ------------------------------------------------------------------------------
 
@@ -90,16 +129,21 @@ restore_device() {
   adb shell svc power stayon false >/dev/null 2>&1 || true
 }
 
-echo "--- Networks on the emulator"
+echo "--- Networks on the device"
 adb shell dumpsys connectivity | grep -E "^ *NetworkAgentInfo|Active default network" | head -n 10 || true
 
-ARGS=(-e xmppHost "$XMPP_HOST" -e xmppDomain localhost -e xmppPassword secret -e mobileData "$MOBILE_DATA"
-      -e proxyPort 15222 -e toxiproxyApi "http://$XMPP_HOST:8474" -e reconnectLimitMs "$LIMIT")
+ARGS=(-e xmppHost "$SERVER_FOR_DEVICE" -e xmppPort "$XMPP_PORT" -e xmppDomain "$XMPP_DOMAIN"
+      -e aliceJid "$ALICE_JID" -e alicePassword "$ALICE_PASSWORD" -e bobJid "$BOB_JID" -e bobPassword "$BOB_PASSWORD"
+      -e proxyHost "$HOST_IP" -e proxyPort 15222 -e toxiproxyApi "$TOXIPROXY_API"
+      -e mobileData "$MOBILE_DATA" -e reconnectLimitMs "$LIMIT")
 
-# The device must reach the server before anything else is worth running.
-if ! adb shell "nc -z -w 5 $XMPP_HOST 5222 2>/dev/null || toybox nc -z -w 5 $XMPP_HOST 5222" >/dev/null 2>&1; then
-  echo "Warning: could not confirm that the device reaches $XMPP_HOST:5222 (no nc on the device, or blocked)." >&2
-  echo "On a phone, XMPP_HOST must be this computer's Wi-Fi IP and the firewall must allow 5222, 15222 and 8474." >&2
+# The device must reach the server (and Toxiproxy) before anything else is worth running.
+reaches() { adb shell "nc -z -w 5 $1 $2 2>/dev/null || toybox nc -z -w 5 $1 $2" >/dev/null 2>&1; }
+reaches "$SERVER_FOR_DEVICE" "$XMPP_PORT" \
+  || echo "Warning: could not confirm that the device reaches the server at $SERVER_FOR_DEVICE:$XMPP_PORT." >&2
+if [ "$TOXIPROXY" = true ]; then
+  reaches "$HOST_IP" 15222 || echo "Warning: could not confirm that the device reaches Toxiproxy at $HOST_IP:15222." \
+    "HOST_IP must be this computer's Wi-Fi IP, and the firewall must allow ports 15222 and 8474." >&2
 fi
 
 adb logcat -G 16M || true
@@ -115,9 +159,10 @@ adb shell am instrument -w -r -e class "$TESTS" "${ARGS[@]}" $RUNNER | tee stabi
 tests_ok=true
 grep -q "^OK (" stability-instrument.txt || tests_ok=false
 if ! $tests_ok; then
-  echo "--- Server log"
-  docker exec $EJ ejabberdctl check_password alice localhost secret && echo "alice's password checks out" || true
-  docker logs $EJ 2>&1 | grep -iE "auth|sasl|scram|fail|error" | tail -n 40 || true
+  if [ -z "${XMPP_SERVER:-}" ]; then
+    echo "--- Server log"
+    docker logs $EJ 2>&1 | grep -iE "auth|sasl|scram|fail|error" | tail -n 40 || true
+  fi
   echo "--- SDK log"
   grep -E " Tether |Stability" stability-logcat.txt | grep -iE "auth|sasl|scram|mechanism|Terminal|fail" | head -n 40 || true
 fi
@@ -167,7 +212,7 @@ if [ "$COLD_STARTS" -gt 0 ]; then
 fi
 
 kill $LOGCAT 2>/dev/null || true
-docker logs $EJ > stability-ejabberd.txt 2>&1 || true
+[ -n "${XMPP_SERVER:-}" ] || docker logs $EJ > stability-ejabberd.txt 2>&1 || true
 
 # --- Report ---------------------------------------------------------------------------
 
