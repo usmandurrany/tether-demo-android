@@ -25,21 +25,38 @@ rm -f stability-report.txt stability-instrument.txt stability-logcat.txt stabili
 # --- Server and proxy ----------------------------------------------------------------
 
 docker network create $NET >/dev/null 2>&1 || true
-start_server() {
-  docker rm -f tether-stability-ejabberd >/dev/null 2>&1 || true
-  docker run -d --name tether-stability-ejabberd --network $NET -p 5222:5222 ghcr.io/processone/ejabberd:latest >/dev/null
+EJ=tether-stability-ejabberd
+server_ready() {
   for _ in $(seq 90); do
-    docker exec tether-stability-ejabberd ejabberdctl status >/dev/null 2>&1 && return 0
-    [ "$(docker inspect -f '{{.State.Running}}' tether-stability-ejabberd)" = true ] || break
+    docker exec $EJ ejabberdctl status >/dev/null 2>&1 && return 0
+    [ "$(docker inspect -f '{{.State.Running}}' $EJ)" = true ] || break
     sleep 2
   done
   echo "ejabberd did not start:" >&2
-  docker logs tether-stability-ejabberd 2>&1 | tail -n 100 >&2
+  docker logs $EJ 2>&1 | tail -n 100 >&2
   return 1
 }
+start_server() {
+  docker rm -f $EJ >/dev/null 2>&1 || true
+  docker run -d --name $EJ --network $NET -p 5222:5222 ghcr.io/processone/ejabberd:latest >/dev/null
+  server_ready || return 1
+  # Store passwords as SCRAM-SHA-256 keys, as a production server would. With the
+  # image's default (plain passwords) ejabberd makes up a new salt for every login,
+  # so the keys the app saves can never log in again and cold starts need the password.
+  docker exec $EJ sh -c '
+    for f in /opt/ejabberd/conf/ejabberd.yml /home/ejabberd/conf/ejabberd.yml; do
+      [ -f "$f" ] || continue
+      sed -i "/^auth_password_format:/d; /^auth_scram_hash:/d" "$f"
+      printf "\nauth_password_format: scram\nauth_scram_hash: sha256\n" >> "$f"
+      exit 0
+    done
+    echo "ejabberd.yml not found" >&2; exit 1'
+  docker restart $EJ >/dev/null
+  server_ready
+}
 start_server || start_server
-docker exec tether-stability-ejabberd ejabberdctl register alice localhost secret
-docker exec tether-stability-ejabberd ejabberdctl register bob localhost secret
+docker exec $EJ ejabberdctl register alice localhost secret
+docker exec $EJ ejabberdctl register bob localhost secret
 
 # Toxiproxy on 15222 forwards to ejabberd; its API on 8474 lets the tests spoil the link.
 docker rm -f tether-stability-toxiproxy >/dev/null 2>&1 || true
@@ -119,7 +136,7 @@ if [ "$COLD_STARTS" -gt 0 ]; then
 fi
 
 kill $LOGCAT 2>/dev/null || true
-docker logs tether-stability-ejabberd > stability-ejabberd.txt 2>&1 || true
+docker logs $EJ > stability-ejabberd.txt 2>&1 || true
 
 # --- Report ---------------------------------------------------------------------------
 
