@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -224,7 +226,16 @@ private fun Messages(state: ChatUiState, actions: ChatActions, padding: PaddingV
             }
         }
     }
+    // The list keeps the bubble you are looking at in place when one is added
+    // below it, so jump to the newest: always after we send, and for theirs
+    // only when we were already at (or next to) the bottom.
+    val list = rememberLazyListState()
+    val newest = state.messages.lastOrNull()
+    LaunchedEffect(newest?.id, newest?.outgoing) {
+        if (newest != null && (newest.outgoing || list.firstVisibleItemIndex <= 2)) list.animateScrollToItem(0)
+    }
     LazyColumn(
+        state = list,
         reverseLayout = true,
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
