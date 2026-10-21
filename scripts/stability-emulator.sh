@@ -93,6 +93,14 @@ TESTS=$(echo "$CLASSES" | tr ',' '\n' | sed "s/^/$PKG.stability./" | paste -sd, 
 adb shell am instrument -w -r -e class "$TESTS" "${ARGS[@]}" $RUNNER | tee stability-instrument.txt || true
 tests_ok=true
 grep -q "^OK (" stability-instrument.txt || tests_ok=false
+if ! $tests_ok; then
+  echo "--- Server auth settings and log"
+  docker exec $EJ sh -c 'grep -n "^auth_" /opt/ejabberd/conf/ejabberd.yml /home/ejabberd/conf/ejabberd.yml 2>/dev/null' || true
+  docker exec $EJ ejabberdctl check_password alice localhost secret && echo "alice's password checks out" || true
+  docker logs $EJ 2>&1 | grep -iE "auth|sasl|scram|fail|error" | tail -n 40 || true
+  echo "--- SDK log"
+  grep -E " Tether |Stability" stability-logcat.txt | grep -iE "auth|sasl|scram|mechanism|Terminal|fail" | head -n 40 || true
+fi
 
 # --- Cold starts ----------------------------------------------------------------------
 # Kills the app and starts it again, as after swiping it away on phones that
