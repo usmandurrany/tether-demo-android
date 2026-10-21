@@ -93,3 +93,37 @@ jobs:
             instrument.txt
             logcat.txt
             ejabberd.txt
+
+  # Connection stability on an emulator against a real ejabberd behind Toxiproxy:
+  # poor network, Wi-Fi/mobile switching, network toggling, opening and closing
+  # the app, and cold starts. The measured times are in the job summary.
+  stability:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: tether-demo-debug-apk
+          path: apks
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        env:
+          APKS: apks
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash scripts/stability-emulator.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stability-logs
+          path: |
+            stability-*.txt

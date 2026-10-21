@@ -28,6 +28,7 @@ adb install -r "$APKS/debug/app-debug.apk"
 adb install -r "$APKS/androidTest/debug/app-debug-androidTest.apk"
 adb logcat -c
 adb shell am instrument -w -r \
+  -e class io.github.usmandurrany.tether.demo.ChatEndToEndTest \
   -e xmppHost 10.0.2.2 -e xmppDomain localhost -e xmppPassword secret \
   io.github.usmandurrany.tether.demo.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt || true
 adb logcat -d > logcat.txt
