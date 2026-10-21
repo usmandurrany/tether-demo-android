@@ -27,12 +27,12 @@ class ColdStartSetup {
         val host = args.getString("xmppHost")!!
         val domain = args.getString("xmppDomain")!!
         var settings = ConnectionSettings(
-            jid = args.getString("aliceJid") ?: "alice@$domain",
+            jid = TestArgs.get("aliceJid") ?: "alice@$domain",
             host = host,
             port = args.getString("xmppPort") ?: "5222",
             autoConnect = true,
         )
-        val password = args.getString("alicePassword") ?: args.getString("xmppPassword") ?: "secret"
+        val password = TestArgs.get("alicePassword") ?: TestArgs.get("xmppPassword") ?: "secret"
         var result = app.signIn(settings, password)
         if (result is SignInResult.UntrustedCertificate) {
             settings = settings.copy(pinnedCertificates = setOf(result.sha256))

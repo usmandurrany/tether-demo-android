@@ -108,13 +108,25 @@ restore_device() {
   adb shell svc power stayon false >/dev/null 2>&1 || true
   adb shell cmd connectivity set-package-networking-enabled true $PKG >/dev/null 2>&1 || true
   adb shell cmd connectivity set-chain3-enabled false >/dev/null 2>&1 || true
+  adb shell rm -f /data/local/tmp/tether-stability-credentials >/dev/null 2>&1 || true
 }
+trap restore_device EXIT
 
 echo "--- Networks on the device"
 adb shell dumpsys connectivity | grep -E "^ *NetworkAgentInfo|Active default network" | head -n 10 || true
 
-ARGS=(-e xmppHost "$SERVER_FOR_DEVICE" -e xmppPort "$XMPP_PORT" -e xmppDomain "$XMPP_DOMAIN"
-      -e aliceJid "$ALICE_JID" -e alicePassword "$ALICE_PASSWORD" -e bobJid "$BOB_JID" -e bobPassword "$BOB_PASSWORD"
+# The accounts go to the device in a file, read by the tests and deleted at the end:
+# as -e arguments, the passwords would land in logcat (adbd logs every command).
+CREDENTIALS=/data/local/tmp/tether-stability-credentials
+creds_local=$(mktemp)
+chmod 600 "$creds_local"
+printf 'aliceJid=%s\nalicePassword=%s\nbobJid=%s\nbobPassword=%s\n' \
+  "$ALICE_JID" "$ALICE_PASSWORD" "$BOB_JID" "$BOB_PASSWORD" > "$creds_local"
+adb push "$creds_local" $CREDENTIALS >/dev/null
+rm -f "$creds_local"
+adb shell chmod 600 $CREDENTIALS
+
+ARGS=(-e xmppHost "$SERVER_FOR_DEVICE" -e xmppPort "$XMPP_PORT" -e xmppDomain "$XMPP_DOMAIN" -e credentialsFile $CREDENTIALS
       -e mobileData "$MOBILE_DATA" -e reconnectLimitMs "$LIMIT")
 
 # The device must reach the server before anything else is worth running.
@@ -188,6 +200,11 @@ if [ "$COLD_STARTS" -gt 0 ]; then
 fi
 
 kill $LOGCAT 2>/dev/null || true
+# Belt and braces: no password stays in the saved logs.
+for f in stability-logcat.txt stability-instrument.txt; do
+  [ -f "$f" ] && ALICE_PASSWORD=$ALICE_PASSWORD BOB_PASSWORD=$BOB_PASSWORD \
+    perl -pi -e 's/\Q$ENV{ALICE_PASSWORD}\E/<redacted>/g; s/\Q$ENV{BOB_PASSWORD}\E/<redacted>/g' "$f"
+done
 [ -n "${XMPP_SERVER:-}" ] || docker logs $EJ > stability-ejabberd.txt 2>&1 || true
 
 # --- Report ---------------------------------------------------------------------------

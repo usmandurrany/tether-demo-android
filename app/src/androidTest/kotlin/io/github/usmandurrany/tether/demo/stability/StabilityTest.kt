@@ -45,6 +45,8 @@ import java.util.UUID
  * - `aliceJid`, `alicePassword`, `bobJid`, `bobPassword`: the two accounts
  *   (default `alice@domain` and `bob@domain`, both with `xmppPassword`, default
  *   "secret"). Alice is the app's account; the tests sign the app in as her.
+ *   These can also come from `credentialsFile` (see [TestArgs]), which keeps
+ *   the passwords out of logcat.
  * - `xmppPort` (5222): the server's client port.
  * - `reconnectLimitMs` (10000): how soon the connection must work again.
  * - `mobileData` (true): false when the server is only reachable over Wi-Fi
@@ -80,10 +82,10 @@ abstract class StabilityTest {
         val domain = args.getString("xmppDomain")
         assumeTrue("No test server given", host != null && domain != null)
         val directPort = args.getString("xmppPort")?.toIntOrNull() ?: 5222
-        aliceJid = BareJid.parse(args.getString("aliceJid") ?: "alice@$domain")
-        bobJid = BareJid.parse(args.getString("bobJid") ?: "bob@$domain")
-        val alicePassword = args.getString("alicePassword") ?: args.getString("xmppPassword") ?: "secret"
-        val bobPassword = args.getString("bobPassword") ?: args.getString("xmppPassword") ?: "secret"
+        aliceJid = BareJid.parse(TestArgs.get("aliceJid") ?: "alice@$domain")
+        bobJid = BareJid.parse(TestArgs.get("bobJid") ?: "bob@$domain")
+        val alicePassword = TestArgs.get("alicePassword") ?: TestArgs.get("xmppPassword") ?: "secret"
+        val bobPassword = TestArgs.get("bobPassword") ?: TestArgs.get("xmppPassword") ?: "secret"
 
         network = DeviceNetwork(InstrumentationRegistry.getInstrumentation().targetContext, mobileData)
         network.restore()

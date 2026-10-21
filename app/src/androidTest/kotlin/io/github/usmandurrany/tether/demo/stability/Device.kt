@@ -18,12 +18,36 @@ private const val TAG = "Stability"
 /** Runs shell commands as the shell user, which may switch radios and send key events. */
 object Shell {
     fun run(command: String): String {
-        val fd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
-        // Reading to the end waits for the command to finish.
-        val output = android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes().decodeToString() }
+        val output = read(command)
         Log.d(TAG, "$ $command${if (output.isBlank()) "" else "\n$output"}")
         return output
     }
+
+    /** Like [run], but logs nothing: for output that must not reach logcat. */
+    fun read(command: String): String {
+        val fd = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
+        // Reading to the end waits for the command to finish.
+        return android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes().decodeToString() }
+    }
+}
+
+/**
+ * Instrumentation arguments, plus the accounts from `credentialsFile`: a
+ * `name=value` file on the device that scripts/stability.sh pushes and deletes
+ * again. Passwords given as `-e` arguments would end up in logcat, where adbd
+ * logs every shell command it runs.
+ */
+object TestArgs {
+    private val args = InstrumentationRegistry.getArguments()
+
+    private val fromFile: Map<String, String> by lazy {
+        val path = args.getString("credentialsFile") ?: return@lazy emptyMap()
+        Shell.read("cat $path").lineSequence()
+            .mapNotNull { line -> line.indexOf('=').takeIf { it > 0 }?.let { line.substring(0, it) to line.substring(it + 1) } }
+            .toMap()
+    }
+
+    fun get(name: String): String? = fromFile[name] ?: args.getString(name)
 }
 
 /** A network as Android reports it: which one is the default, and over what. */
