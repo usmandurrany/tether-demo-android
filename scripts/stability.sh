@@ -53,6 +53,8 @@ fi
 CLASSES=${STABILITY_CLASSES:-PoorNetworkTest,NetworkSwitchTest,NetworkToggleTest,AppOpenCloseTest}
 NET=tether-stability
 EJ=tether-stability-ejabberd
+# Milliseconds since the epoch; macOS's date has no %N.
+now_ms() { python3 -c 'import time; print(int(time.time() * 1000))'; }
 rm -f stability-report.txt stability-instrument.txt stability-logcat.txt stability-coldstart.txt
 
 # --- Server -------------------------------------------------------------------------
@@ -102,7 +104,7 @@ fi
 if [ "$TOXIPROXY" = true ]; then
   docker rm -f tether-stability-toxiproxy >/dev/null 2>&1 || true
   if [ -n "${XMPP_SERVER:-}" ]; then net_args=(); else net_args=(--network $NET); fi
-  docker run -d --name tether-stability-toxiproxy "${net_args[@]}" -p 8474:8474 -p 15222:15222 ghcr.io/shopify/toxiproxy:2.12.0 >/dev/null
+  docker run -d --name tether-stability-toxiproxy ${net_args[@]+"${net_args[@]}"} -p 8474:8474 -p 15222:15222 ghcr.io/shopify/toxiproxy:2.12.0 >/dev/null
   for _ in $(seq 30); do curl -sf http://localhost:8474/version >/dev/null && break; sleep 1; done
   curl -sf -X POST http://localhost:8474/proxies \
     -d "{\"name\":\"xmpp\",\"listen\":\"0.0.0.0:15222\",\"upstream\":\"$UPSTREAM\"}" >/dev/null
@@ -178,9 +180,9 @@ if [ "$COLD_STARTS" -gt 0 ]; then
     | tee -a stability-instrument.txt
   online_after() { # waits for the SDK's "Online(" log line; prints ms or "-"
     local start=$1 deadline=$(( $1 + 30000 ))
-    while [ "$(date +%s%3N)" -lt $deadline ]; do
+    while [ "$(now_ms)" -lt $deadline ]; do
       if adb logcat -d -s Tether:I 2>/dev/null | grep -q "Online("; then
-        echo $(( $(date +%s%3N) - start )); return
+        echo $(( $(now_ms) - start )); return
       fi
       sleep 0.2
     done
@@ -196,7 +198,7 @@ if [ "$COLD_STARTS" -gt 0 ]; then
       adb shell am force-stop $PKG
     fi
     adb logcat -c
-    start=$(date +%s%3N)
+    start=$(now_ms)
     launch
     ms=$(online_after "$start")
     note=$([ $((i % 2)) -eq 0 ] && echo "after a start killed mid-connect" || echo "")
