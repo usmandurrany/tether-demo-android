@@ -107,7 +107,9 @@ if [ "$COLD_STARTS" -gt 0 ]; then
     launch
     ms=$(online_after "$start")
     note=$([ $((i % 2)) -eq 0 ] && echo "after a start killed mid-connect" || echo "")
-    if [ "$ms" = "-" ]; then verdict="FAIL (never)"; cold_ok=false
+    if [ "$ms" = "-" ]; then
+      verdict="FAIL (never)"; cold_ok=false
+      echo "--- Tether log of cold start #$i"; adb logcat -d -s Tether:I | tail -n 25
     elif [ "$ms" -gt "$LIMIT" ]; then verdict="FAIL"; cold_ok=false
     else verdict="ok"; fi
     echo "StabilityReport: ColdStart | cold start #$i | $ms ms | limit $LIMIT ms | $verdict${note:+ | $note}" | tee -a stability-coldstart.txt

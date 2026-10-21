@@ -106,7 +106,9 @@ abstract class StabilityTest {
         scope.launch { alice.client.foreground.collect { timeline.add("app", if (it) "foreground" else "background") } }
 
         bob = bareClient(bobJid, host, directPort, password)
-        check(withTimeoutOrNull(30_000) { bob.connect() } is ConnectResult.Connected) { "Bob could not connect" }
+        // Bob shares the device's network, so he hears about it like a real app would.
+        scope.launch { network.default.collect { bob.client.networkChanged(it != null, it?.handle?.toString(), it?.toString()) } }
+        bobReady("setup")
     }
 
     @After
@@ -175,9 +177,26 @@ abstract class StabilityTest {
         check(alice.client.state.value is ConnectionState.Online) { "$scenario: not online now" }
     }
 
+    /**
+     * Waits until bob's own connection answers a ping. He is only the other
+     * side of the chat, so his recovery is not measured, only waited for.
+     */
+    private suspend fun bobReady(scenario: String) {
+        val ready = withTimeoutOrNull(45_000) {
+            while (true) {
+                if (withTimeoutOrNull(15_000) { bob.connect() } is ConnectResult.Connected && ping(bob.client, 3_000)) break
+                delay(500)
+            }
+            true
+        }
+        if (ready == null) fail("$scenario: bob could not reconnect (${bob.client.state.value})")
+    }
+
     /** One XEP-0199 ping on alice's connection. */
-    protected suspend fun ping(timeoutMillis: Long = 5_000): Boolean = runCatching {
-        val answer = alice.client.request(
+    protected suspend fun ping(timeoutMillis: Long = 5_000): Boolean = ping(alice.client, timeoutMillis)
+
+    private suspend fun ping(client: XmppClient, timeoutMillis: Long): Boolean = runCatching {
+        val answer = client.request(
             element("iq", "jabber:client") {
                 attribute("type", "get")
                 attribute("to", aliceJid.domain)
@@ -194,7 +213,7 @@ abstract class StabilityTest {
      * device and its network outages hit him too.
      */
     protected suspend fun assertMessagesFlow(scenario: String) {
-        check(withTimeoutOrNull(30_000) { bob.connect() } is ConnectResult.Connected) { "$scenario: bob could not reconnect" }
+        bobReady(scenario)
         val toAlice = "to alice ${UUID.randomUUID()}"
         val start = now()
         bob.send(aliceJid, toAlice)
@@ -216,7 +235,7 @@ abstract class StabilityTest {
 
     /** Waits until bob has every message in [bodies] from alice. */
     protected suspend fun assertBobReceived(scenario: String, bodies: Collection<String>, from: Long) {
-        check(withTimeoutOrNull(30_000) { bob.connect() } is ConnectResult.Connected) { "$scenario: bob could not reconnect" }
+        bobReady(scenario)
         val got = withTimeoutOrNull(limit) {
             bob.allMessages.first { all -> all[aliceJid].orEmpty().map { it.body }.containsAll(bodies) }
         }

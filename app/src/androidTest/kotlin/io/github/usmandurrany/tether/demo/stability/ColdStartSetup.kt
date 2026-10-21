@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import io.github.usmandurrany.tether.demo.ConnectionSettings
 import io.github.usmandurrany.tether.demo.DemoApp
 import io.github.usmandurrany.tether.demo.SignInResult
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -38,5 +39,11 @@ class ColdStartSetup {
             result = app.signIn(settings, password)
         }
         check(result is SignInResult.Connected) { "Could not sign in: $result" }
+        // The process ends with this test. The settings are saved with apply(), which writes
+        // in the background: an empty commit() waits for that write. The SDK saves its own
+        // state (the session to resume) half a second after a change.
+        app.getSharedPreferences("connection_settings", android.content.Context.MODE_PRIVATE).edit().commit()
+        delay(2_000)
+        check(app.settingsStore.load().autoConnect) { "Connect on app start was not saved" }
     }
 }
