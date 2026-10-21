@@ -41,14 +41,16 @@ start_server() {
   docker rm -f $EJ >/dev/null 2>&1 || true
   docker run -d --name $EJ --network $NET -p 5222:5222 "${EJABBERD_IMAGE:-ghcr.io/processone/ejabberd:26.07}" >/dev/null
   server_ready || return 1
-  # Store passwords as SCRAM-SHA-256 keys, as a production server would. With the
+  # Store passwords as SCRAM-SHA-512 keys, as a production server would. With the
   # image's default (plain passwords) ejabberd makes up a new salt for every login,
   # so the keys the app saves can never log in again and cold starts need the password.
+  # SHA-512 because the SDK picks the strongest SCRAM variant offered, and with
+  # SHA-256 keys stored every login was refused.
   docker exec $EJ sh -c '
     for f in /opt/ejabberd/conf/ejabberd.yml /home/ejabberd/conf/ejabberd.yml; do
       [ -f "$f" ] || continue
       sed -i "/^auth_password_format:/d; /^auth_scram_hash:/d" "$f"
-      printf "\nauth_password_format: scram\nauth_scram_hash: sha256\n" >> "$f"
+      printf "\nauth_password_format: scram\nauth_scram_hash: sha512\n" >> "$f"
       exit 0
     done
     echo "ejabberd.yml not found" >&2; exit 1'
