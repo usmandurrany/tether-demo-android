@@ -3,6 +3,7 @@ package io.github.usmandurrany.tether.demo
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import io.github.usmandurrany.tether.android.PreferencesStore
 import io.github.usmandurrany.tether.android.SqliteMessageStore
 import io.github.usmandurrany.tether.android.TetherAndroid
 import io.github.usmandurrany.tether.core.BareJid
@@ -124,6 +125,9 @@ class TetherSession private constructor(
         ChatFeatures(autoAcceptContacts = settings.autoAcceptContacts, profiles = settings.profiles),
         store = store,
         messageStore = messageStore,
+        // The contact list goes in plain SharedPreferences, apart from the encrypted
+        // store: it can be large, and the client's state there is written often.
+        contactStore = PreferencesStore(app, "tether.contacts"),
     )
 
     /** The protocol-level features under [chat], for the Me tab's details. */
