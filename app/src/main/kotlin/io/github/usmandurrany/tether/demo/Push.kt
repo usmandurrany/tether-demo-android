@@ -1,17 +1,11 @@
 package io.github.usmandurrany.tether.demo
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.SystemClock
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -21,6 +15,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import io.github.usmandurrany.tether.core.ConnectionState
 import io.github.usmandurrany.tether.im.MessageStatus
+import io.github.usmandurrany.tether.android.PushWakeService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -61,8 +56,8 @@ class PushSettings(context: Context) {
 /** Receives FCM messages and token changes. Declared in the manifest. */
 class DemoPushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
-        // Android's network allowance for this push counts from now, not from when the SDK is called.
-        (application as DemoApp).pushReceived(SystemClock.elapsedRealtime())
+        PushWakeService.start(applicationContext, message.priority == RemoteMessage.PRIORITY_HIGH,
+            message.data["last-message-sender"], message.data["last-message-body"])
     }
 
     override fun onNewToken(token: String) {
@@ -93,43 +88,18 @@ class MessageNotifier(private val context: Context, private val session: TetherS
                 conversations.forEach { conversation ->
                     val message = conversation.lastMessage ?: return@forEach
                     if (message.outgoing || message.status != MessageStatus.UNREAD || !announced.add(message.id)) return@forEach
-                    if (background) notify(conversation.name, message.body, conversation.peer.toString(), conversation.unreadCount)
+                    if (background) PushPresentation.showOrDefer(context, conversation.name, message.body, conversation.peer.toString(), conversation.unreadCount)
                 }
             }
         }
         scope.launch(Dispatchers.Main) {
             lifecycle.currentStateFlow.collect { state ->
-                if (state.isAtLeast(Lifecycle.State.STARTED)) NotificationManagerCompat.from(context).cancelAll()
+                if (state.isAtLeast(Lifecycle.State.STARTED)) {
+                    val manager = context.getSystemService(NotificationManager::class.java)
+                    manager.activeNotifications.filter { it.notification.channelId == CHANNEL && it.id != PushWakeService.activeNotificationId }
+                        .forEach { manager.cancel(it.tag, it.id) }
+                }
             }
-        }
-    }
-
-    @SuppressLint("MissingPermission") // checked by canNotify, and a late revoke is caught
-    private fun notify(title: String, text: String, peer: String, unread: Int) {
-        if (!DemoPush.canNotify(context)) return
-        // Opens this chat: in the running activity (onNewIntent) or a new one.
-        val open = PendingIntent.getActivity(
-            context,
-            peer.hashCode(),
-            Intent(context, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_PEER, peer)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setContentTitle(title)
-            .setContentText(text.ifBlank { context.getString(R.string.new_message) })
-            .setNumber(unread)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(open)
-            .build()
-        try {
-            NotificationManagerCompat.from(context).notify(peer.hashCode(), notification)
-        } catch (e: SecurityException) {
-            // The permission was revoked meanwhile.
         }
     }
 

@@ -1,7 +1,6 @@
 package io.github.usmandurrany.tether.demo
 
 import android.content.Context
-import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.Lifecycle
@@ -221,23 +220,13 @@ class TetherSession private constructor(
     suspend fun registerPush(server: String, fcmToken: String) {
         val jid = (client.state.value as? io.github.usmandurrany.tether.core.ConnectionState.Online)?.jid
             ?: error("Connect before enabling push")
-        chat.registerPush(PushTarget(
-            service = server,
-            node = jid.toString(),
-            publishOptions = mapOf("service" to "fcm", "device_id" to fcmToken),
-        ))
+        chat.registerPush(PushTarget.mongooseFcm(server, jid.toString(), fcmToken))
     }
 
-    /**
-     * Call when an FCM message arrives: connects, also in the background, so
-     * waiting messages come in. [receivedAt] is `SystemClock.elapsedRealtime()`
-     * when the push arrived, so the SDK closes again inside the short time
-     * Android lets a background app use the network after a push.
-     */
-    suspend fun wakeForPush(receivedAt: Long) {
-        val elapsed = SystemClock.elapsedRealtime() - receivedAt
-        debug.log(LogLevel.INFO, "app", "Push received ${elapsed} ms ago; connecting to fetch messages")
-        chat.wakeForPush(elapsedSincePushMillis = elapsed)
+    /** Keep the worker active until the SDK has finished the background wake. */
+    suspend fun processPush(): Boolean {
+        debug.log(LogLevel.INFO, "app", "Push received; connecting to fetch messages")
+        return chat.processPush()
     }
 
     /** Shows a notification for each message that arrives while the app is in the background. */

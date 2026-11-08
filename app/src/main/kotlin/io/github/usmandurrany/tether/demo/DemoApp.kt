@@ -5,6 +5,9 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.usmandurrany.tether.android.TetherAndroid
+import io.github.usmandurrany.tether.android.PushWakeHost
+import io.github.usmandurrany.tether.android.PushWakeNotification
+import io.github.usmandurrany.tether.android.ConversationNotificationIds
 import io.github.usmandurrany.tether.core.ConnectResult
 import io.github.usmandurrany.tether.core.ConnectionState
 import io.github.usmandurrany.tether.core.KeyValueStore
@@ -32,7 +35,7 @@ sealed interface SignInResult {
  * Holds the one [TetherSession] for the life of the process, as the SDK expects
  * (one client per account per process, in an application-wide scope).
  */
-class DemoApp : Application() {
+class DemoApp : Application(), PushWakeHost {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     lateinit var settingsStore: SettingsStore
@@ -135,12 +138,24 @@ class DemoApp : Application() {
         session.registerPush(server, DemoPush.token())
     }
 
-    /** An FCM message arrived (maybe in a process it just started): fetch what is waiting. */
-    fun pushReceived(receivedAt: Long) {
-        scope.launch {
-            // A process the push started is still restoring the session (auto-connect).
-            val current = withTimeoutOrNull(15_000) { session.filterNotNull().first() } ?: return@launch
-            current.wakeForPush(receivedAt)
+    /** Run by WorkManager after an FCM wake, including process restoration. */
+    override suspend fun processPush(): Boolean {
+        val current = withTimeoutOrNull(15_000) { session.filterNotNull().first() } ?: return false
+        return current.processPush()
+    }
+
+    override fun beginPush(sender: String?, body: String?): PushWakeNotification {
+        val id = PushPresentation.begin(this, sender, body)
+        return PushWakeNotification(id, PushPresentation.preview(this, sender, body), id != ConversationNotificationIds.RESERVED_SERVICE_ID)
+    }
+
+    override fun updatePush(sender: String?, body: String?) = PushPresentation.pushArrived(this, sender, body)
+
+    override fun endPush(sender: String?, body: String?) = PushPresentation.finish(this, sender, body)
+
+    override suspend fun observePushPresentation() {
+        session.collectLatest { current ->
+            current?.chat?.conversations?.collect { PushPresentation.refreshForeground(this) }
         }
     }
 

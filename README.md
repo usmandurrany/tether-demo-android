@@ -110,7 +110,7 @@ MongoosePush and Firebase. Add the Firebase Android app for package
 
 On the Me tab, enter the configured virtual PubSub service JID (for example,
 `pubsub.example.com`) and press **Enable push**. The app uses the bound full JID, including its resource, as the
-node and sends `service=fcm` and the current FCM token as `device_id` in the
+node and sends `service=fcm`, `silent=true`, `priority=high`, and the current FCM token as `device_id` in the
 XEP-0357 publish options. It does not create a PubSub node. It refreshes the
 registration after login and when the token changes. Configure a stable resource in
 the connection settings if the server would otherwise assign a different one on
@@ -118,7 +118,14 @@ each connection. Keep background mode on
 **Disconnect** so the server sees the app offline. Android 13 and later also
 need notification permission.
 
-On receipt, `DemoPushService` calls `chat.wakeForPush()` to fetch waiting messages.
+On receipt of an FCM data message, `DemoPushService` delegates to the
+`tether-android` SDK, which starts a short foreground service for a high-priority
+push to fetch waiting messages and send requested delivery receipts. The demo
+provides the session and notification presentation through `PushWakeHost`.
+If the service cannot start, or the message is not high priority, it schedules a
+normal WorkManager job that makes one attempt and expires after 15 minutes. The server must send a data-only
+message for the background callback to run; notification payloads can bypass it.
+Enable auto-connect so a push can restore the account after process death.
 See the [MongooseIM client setup guide](https://esl.github.io/MongooseDocs/6.10.0/tutorials/push-notifications/Push-notifications-client-side/).
 
 ## Debug logs

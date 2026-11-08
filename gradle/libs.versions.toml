@@ -16,6 +16,7 @@ kotlinx-serialization = "1.9.0"
 robolectric = "4.14.1"
 roborazzi = "1.46.1"
 junit = "4.13.2"
+workmanager = "2.10.1"
 
 [libraries]
 tether-android = { module = "io.github.usmandurrany.tether:tether-android", version.ref = "tether" }
@@ -43,6 +44,7 @@ roborazzi = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = 
 roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "workmanager" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 
 [plugins]
