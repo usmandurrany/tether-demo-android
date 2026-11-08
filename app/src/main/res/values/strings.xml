@@ -242,11 +242,13 @@
     <string name="supported">Supported</string>
     <string name="not_supported">Not supported</string>
     <string name="features_hint">Tether checks capabilities on each new login and only turns on what the server offers.</string>
+    <string name="session_resumed">Session resumed</string>
+    <string name="session_created">New session created</string>
     <string name="push_title">Push notifications</string>
-    <string name="push_no_firebase">This build has no Firebase setup. Add your project\'s google-services.json as app/google-services.json and rebuild (see the README), then run a push server such as tether-push.</string>
-    <string name="push_intro">Messages that arrive while the app is closed come as notifications. The push server (tether-push or another p2-compatible one) forwards them from your XMPP server to Firebase.</string>
-    <string name="push_server">Push server address</string>
-    <string name="push_server_placeholder">myapp-push@sure.im/push</string>
+    <string name="push_no_firebase">This build has no Firebase setup. Add your project\'s google-services.json as app/google-services.json and rebuild (see the README).</string>
+    <string name="push_intro">Enter the virtual PubSub service configured on your MongooseIM server to receive notifications through Firebase.</string>
+    <string name="push_server">Virtual PubSub service JID</string>
+    <string name="push_server_placeholder">pubsub.example.com</string>
     <string name="enable_push">Enable push</string>
     <string name="turn_off">Turn off</string>
     <string name="push_notifications_off">Notifications are off for this app, so pushes connect but show nothing.</string>

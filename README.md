@@ -103,37 +103,23 @@ Monitoring plugin; without it, chats show messages from this run plus offline me
 
 ## Push notifications
 
-Messages that arrive while the app is closed show up as notifications. This takes three
-pieces, and only the last is in this repo:
+Configure MongooseIM with XEP-0357 and a virtual PubSub push service backed by
+MongoosePush and Firebase. Add the Firebase Android app for package
+`io.github.usmandurrany.tether.demo` and place its `google-services.json` at
+`app/google-services.json` before building. The file is ignored by Git.
 
-1. **A Firebase project.** In the [Firebase console](https://console.firebase.google.com),
-   add an Android app with the package `io.github.usmandurrany.tether.demo`, download its
-   `google-services.json` and put it at `app/google-services.json`. Git ignores that file.
-   Without it the app builds and runs as before, with push off.
-2. **A push server** holding that project's credentials:
-   [tether-push](https://github.com/usmandurrany/tether-push), deployed to Cloud Run in the
-   same Firebase project or anywhere else. It logs in as its own XMPP account, for example
-   `myapp-push@sure.im`, and its address is that account plus `/push`.
-3. **The app.** On the Me tab, enter the push server's address and press **Enable push**. The
-   app asks for permission to notify (Android 13+), registers its FCM token with the push
-   server, and then registers with your XMPP server again on every login. Keep the background
-   mode on **Disconnect** (Settings), so the server sees you offline and pushes.
+On the Me tab, enter the configured virtual PubSub service JID (for example,
+`pubsub.example.com`) and press **Enable push**. The app uses the bound full JID, including its resource, as the
+node and sends `service=fcm` and the current FCM token as `device_id` in the
+XEP-0357 publish options. It does not create a PubSub node. It refreshes the
+registration after login and when the token changes. Configure a stable resource in
+the connection settings if the server would otherwise assign a different one on
+each connection. Keep background mode on
+**Disconnect** so the server sees the app offline. Android 13 and later also
+need notification permission.
 
-When a push arrives, [`DemoPushService`](app/src/main/kotlin/io/github/usmandurrany/tether/demo/Push.kt)
-calls `chat.wakeForPush()`, also when the push started the app. The SDK connects, the waiting
-messages arrive, and `MessageNotifier` shows one notification per chat. The connection closes
-again 30 s later if the app is still in the background. The SDK calls are in
-[`TetherSession.kt`](app/src/main/kotlin/io/github/usmandurrany/tether/demo/TetherSession.kt):
-
-```kotlin
-chat.registerPush(PushAppServer.p2("myapp-push@sure.im/push", fcmToken, installId))  // Enable push
-chat.wakeForPush()                                                                      // FCM message arrived
-```
-
-Your XMPP server needs XEP-0357 (sure.im, Prosody, ejabberd and Openfire have it). For
-MongooseIM, whose own push service takes the token directly, **Register a push node by hand**
-on the Me tab takes any target: service `pubsub.<domain>`, any node name, options
-`device_id=<token>` and `service=fcm`, with "create node" on.
+On receipt, `DemoPushService` calls `chat.wakeForPush()` to fetch waiting messages.
+See the [MongooseIM client setup guide](https://esl.github.io/MongooseDocs/6.10.0/tutorials/push-notifications/Push-notifications-client-side/).
 
 ## Debug logs
 

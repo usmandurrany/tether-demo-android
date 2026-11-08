@@ -3,6 +3,9 @@ package io.github.usmandurrany.tether.demo
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import io.github.usmandurrany.tether.android.PreferencesStore
 import io.github.usmandurrany.tether.android.SqliteMessageStore
 import io.github.usmandurrany.tether.android.TetherAndroid
@@ -24,23 +27,28 @@ import io.github.usmandurrany.tether.debug.LogSink
 import io.github.usmandurrany.tether.debug.MemorySink
 import io.github.usmandurrany.tether.debug.RemoteLogConfig
 import io.github.usmandurrany.tether.debug.RemoteLogSink
+import io.github.usmandurrany.tether.debug.Redaction
+import io.github.usmandurrany.tether.debug.StanzaRedactor
+import io.github.usmandurrany.tether.xml.Element
+import io.github.usmandurrany.tether.xml.Text
 import io.github.usmandurrany.tether.debug.TetherDebug
 import io.github.usmandurrany.tether.debug.http
 import io.github.usmandurrany.tether.im.ChatFeatures
 import io.github.usmandurrany.tether.im.InstantMessaging
 import io.github.usmandurrany.tether.im.MessageData
 import io.github.usmandurrany.tether.im.MessageStore
-import io.github.usmandurrany.tether.im.PushAppServer
 import io.github.usmandurrany.tether.im.PushTarget
 import io.github.usmandurrany.tether.im.SubscriptionEvent
 import io.github.usmandurrany.tether.im.TetherChat
 import io.github.usmandurrany.tether.sasl.SaslConfig
 import io.github.usmandurrany.tether.transport.TlsConfig
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
 /**
@@ -93,7 +101,7 @@ class TetherSession private constructor(
     }
 
     val debug = TetherDebug(
-        config = DebugConfig(redactBodies = settings.redactBodies),
+        config = DebugConfig(redactBodies = settings.redactBodies, redactor = StanzaRedactor(::redactPushDeviceId)),
         sinks = listOfNotNull(
             logs,
             LogcatSink,
@@ -111,6 +119,18 @@ class TetherSession private constructor(
         store = store,
         credentials = CredentialVault(store),
     )
+
+    init {
+        // Observe the actual established stream, including the initial sign-in and reconnects.
+        scope.launch(Dispatchers.Main) {
+            client.session.filterNotNull().collect { live ->
+                if (ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                    val message = if (live.resumed) R.string.session_resumed else R.string.session_created
+                    Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     /** Kept in the SDK's SQLite database, one per account, unless the settings say memory only. */
     private val messageStore: MessageStore? = if (settings.keepMessages) SqliteMessageStore(app, account) else null
@@ -197,14 +217,15 @@ class TetherSession private constructor(
 
     suspend fun registerPush(target: PushTarget) = chat.registerPush(target)
 
-    /**
-     * Gets a node for this device from a push app server that speaks p2's
-     * registration command, such as tether-push, and turns push on with it.
-     */
-    suspend fun registerPush(server: String, fcmToken: String, installId: String): PushTarget {
-        val target = chat.registerPush(PushAppServer.p2(server, fcmToken, installId))
-        debug.log(LogLevel.INFO, "app", "Push registered with ${target.service}")
-        return target
+    /** Enables push through a MongooseIM virtual PubSub service. */
+    suspend fun registerPush(server: String, fcmToken: String) {
+        val jid = (client.state.value as? io.github.usmandurrany.tether.core.ConnectionState.Online)?.jid
+            ?: error("Connect before enabling push")
+        chat.registerPush(PushTarget(
+            service = server,
+            node = jid.toString(),
+            publishOptions = mapOf("service" to "fcm", "device_id" to fcmToken),
+        ))
     }
 
     /**
@@ -323,4 +344,14 @@ private object LogcatSink : LogSink {
 internal object BuildInfo {
     fun versionName(context: Context): String? =
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+}
+
+/** The MongooseIM device_id field contains the FCM token. */
+private fun redactPushDeviceId(element: Element): Element {
+    if (element.name == "field" && element.namespace == "jabber:x:data" && element.attribute("var") == "device_id") {
+        return element.copy(children = element.children.map {
+            if (it is Element && it.name == "value") it.copy(children = listOf(Text(Redaction.MARK))) else it
+        })
+    }
+    return element.copy(children = element.children.map { if (it is Element) redactPushDeviceId(it) else it })
 }

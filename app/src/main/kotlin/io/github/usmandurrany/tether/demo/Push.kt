@@ -29,22 +29,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/**
- * Push notifications through Firebase Cloud Messaging and a push app server
- * such as [tether-push](https://github.com/usmandurrany/tether-push).
- *
- * The whole flow, with the SDK calls in [TetherSession]:
- * 1. Get the FCM token and register it with the app server
- *    (`chat.registerPush(PushAppServer.p2(server, token, installId))`). The SDK
- *    then tells the account's server (`<enable/>`) on every login.
- * 2. When the app is in the background the SDK closes the connection, so the
- *    server sends new messages to the app server, which sends an FCM message.
- * 3. [DemoPushService] gets it and calls `chat.wakeForPush()`: the SDK connects,
- *    the waiting messages arrive, and [MessageNotifier] shows them.
- *
- * Firebase is only set up when the build has an `app/google-services.json`
- * (see the README); without it [available] is false and the demo works as before.
- */
+/** FCM token and notification permission helpers for MongooseIM push. */
 object DemoPush {
     fun available(context: Context): Boolean = FirebaseApp.getApps(context).isNotEmpty()
 
@@ -63,7 +48,7 @@ object DemoPush {
 class PushSettings(context: Context) {
     private val prefs = context.getSharedPreferences("push_settings", Context.MODE_PRIVATE)
 
-    /** The app server's address, such as `myapp-push@sure.im/push` for tether-push. */
+    /** The MongooseIM virtual PubSub service JID, such as `pubsub.example.com`. */
     var server: String
         get() = prefs.getString("server", "").orEmpty()
         set(value) = prefs.edit().putString("server", value.trim()).apply()

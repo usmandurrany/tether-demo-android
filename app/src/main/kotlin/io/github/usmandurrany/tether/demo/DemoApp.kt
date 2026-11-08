@@ -57,8 +57,11 @@ class DemoApp : Application() {
         // changed app server always reaches the server.
         scope.launch {
             session.filterNotNull().collectLatest { current ->
-                current.client.state.first { it is ConnectionState.Online }
-                if (pushSettings.enabled) runCatching { enablePush(current) }
+                current.client.state.collectLatest { state ->
+                    if (state is ConnectionState.Online && pushSettings.enabled) {
+                        runCatching { enablePush(current) }
+                    }
+                }
             }
         }
 
@@ -123,13 +126,13 @@ class DemoApp : Application() {
     }
 
     /**
-     * Turns push on for [session] with the app server in [pushSettings]. Throws
+     * Turns push on for [session] with the virtual PubSub service in [pushSettings]. Throws
      * when Firebase is not set up, there is no server, or the server refuses.
      */
     suspend fun enablePush(session: TetherSession) {
         check(DemoPush.available(this)) { "Firebase is not set up in this build (no google-services.json)" }
         val server = pushSettings.server.ifBlank { error("Enter the push server's address") }
-        session.registerPush(server, DemoPush.token(), settingsStore.installId)
+        session.registerPush(server, DemoPush.token())
     }
 
     /** An FCM message arrived (maybe in a process it just started): fetch what is waiting. */
